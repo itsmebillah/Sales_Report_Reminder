@@ -37,7 +37,6 @@ const DashboardService = (() => {
             }
 
             const reminderRetention = config['REMINDER_RETENTION_DAYS'] || 30;
-            const logRetention = config['LOG_RETENTION_DAYS'] || 10;
 
             const schedulerTime = String(config['Scheduler_Time'] || '09:00');
             const schedulerStatus = `ACTIVE (Daily at ${schedulerTime})`;
@@ -54,7 +53,6 @@ const DashboardService = (() => {
             const cleanupInfo = summary.cleanupResult || {};
             const lastCleanupTime = cleanupInfo.timestamp ? Utilities.formatDate(new Date(cleanupInfo.timestamp), tz, "dd-MMM-yyyy HH:mm:ss") : "N/A";
             const purgedReminders = cleanupInfo.reminderPurged || 0;
-            const purgedLogs = cleanupInfo.logPurged || 0;
 
             const attMetrics = summary.attendanceMetrics || {};
             const archiveStats = AttendanceService.getArchiveStats(ss);
@@ -75,7 +73,7 @@ const DashboardService = (() => {
                 ["Execution Mode", execMode],
                 ["Scheduler Status", schedulerStatus],
                 ["Configured Timezone", tz],
-                ["Data Retention Policy", `Reminder_System: ${reminderRetention} Days | Logs: ${logRetention} Days`],
+                ["Data Retention Policy", `Reminder_System: ${reminderRetention} Days | Logs: Append-only history`],
                 ["", ""],
                 [`SALES ATTENDANCE MODULE SUMMARY (${attMetrics.currentMonth || 'Current Month'})`, ""],
                 ["Current Attendance Month", attMetrics.currentMonth || "N/A"],
@@ -105,7 +103,7 @@ const DashboardService = (() => {
                 ["Estimated Next Scheduled Run", nextRunStr],
                 ["Total Execution Duration", execTimeSec],
                 ["Last Retention Cleanup Executed", lastCleanupTime],
-                ["Records Purged in Last Cleanup", `Reminder_System: ${purgedReminders} rows | Logs: ${purgedLogs} rows`]
+                ["Records Purged in Last Cleanup", `Reminder_System: ${purgedReminders} rows`]
             ];
 
             sheet.clearContents();

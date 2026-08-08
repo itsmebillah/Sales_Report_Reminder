@@ -1,7 +1,7 @@
 /**
  * @fileoverview CleanupService.js
- * @responsibility Handles automated data retention cleanup for 'Reminder_System' and 'Logs' sheets
- * based on configurable retention limits in the 'Settings' sheet.
+ * @responsibility Handles automated data retention cleanup for the 'Reminder_System' sheet
+ * while preserving the Logs sheet as append-only history.
  */
 
 const CleanupService = (() => {
@@ -14,25 +14,19 @@ const CleanupService = (() => {
         try {
             const config = ConfigLoader.load();
             const reminderRetentionDays = parseInt(config['REMINDER_RETENTION_DAYS'], 10) || 30;
-            const logRetentionDays = parseInt(config['LOG_RETENTION_DAYS'], 10) || 10;
 
             const now = new Date();
             const reminderCutoff = new Date(now.getTime() - (reminderRetentionDays * 24 * 60 * 60 * 1000));
-            const logCutoff = new Date(now.getTime() - (logRetentionDays * 24 * 60 * 60 * 1000));
 
             // Reminder_System timestamp is in Column D (Index 3)
             const reminderPurged = purgeOldRecords('Reminder_System', 3, reminderCutoff);
-            
-            // Logs timestamp is in Column A (Index 0)
-            const logPurged = purgeOldRecords('Logs', 0, logCutoff);
 
             return {
                 success: true,
                 timestamp: now,
                 reminderPurged: reminderPurged,
-                logPurged: logPurged,
-                reminderRetentionDays: reminderRetentionDays,
-                logRetentionDays: logRetentionDays
+                logPurged: 0,
+                reminderRetentionDays: reminderRetentionDays
             };
         } catch (err) {
             console.log("CleanupService encountered an error: " + err);
