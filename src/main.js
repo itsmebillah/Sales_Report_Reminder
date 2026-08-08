@@ -18,7 +18,6 @@ function onOpen(e) {
           .addItem('📋  Copy Sales Data', 'copyData')
           .addSeparator()
           .addItem('Run Daily Reminders', 'processDailyReminders')
-          .addItem('Generate Message Queue', 'generateMessageQueue')
           .addSeparator()
           .addItem('▶  Start Notification Sender', 'startNotificationSender')
           .addItem('⏹  Stop Notification Sender', 'stopNotificationSender')
