@@ -59,12 +59,19 @@ const AttendanceService = (() => {
             }
 
             // Read sales activity and dynamic month days info
-            const { map: monthlySalesMap, postedDaysMap } = readMonthlySalesData();
+            const monthlySalesMap = readMonthlySalesData();
             const { weekdays, daysInMonth } = getReportingMonthWeekdays(activeReportingDate, tz);
             const totalCols = 6 + daysInMonth + 3;
 
-            // Determine last posted sales day from cell existence in Sales sheet
-            const lastPostedSalesDay = getLastPostedSalesDay(postedDaysMap, daysInMonth);
+            // Evaluate the current date in the project timezone. The active reporting
+            // period may be the previous month during the early-month rollover; in that
+            // case all dates in that already completed period are eligible.
+            const currentDate = new Date(new Date().toLocaleString('en-US', { timeZone: tz }));
+            const isCurrentReportingMonth = currentDate.getFullYear() === activeReportingDate.getFullYear()
+                && currentDate.getMonth() === activeReportingDate.getMonth();
+            const attendanceEndDay = isCurrentReportingMonth
+                ? Math.min(currentDate.getDate(), daysInMonth)
+                : daysInMonth;
 
             // Build Attendance Matrix
             // Columns: 1: RSM ID, 2: RSM Name, 3: TSO ID, 4: TSO Name, 5: SR ID, 6: SR Name, 7..(6+daysInMonth): Days 1..N, Summary: Present, Absent, %
@@ -112,7 +119,7 @@ const AttendanceService = (() => {
                     const dateObj = new Date(activeReportingDate.getFullYear(), activeReportingDate.getMonth(), d);
                     const isWeeklyHoliday = isHoliday(dateObj, tz);
 
-                    if (lastPostedSalesDay > 0 && d <= lastPostedSalesDay) {
+                    if (d <= attendanceEndDay) {
                         if (salesVal > 0) {
                             row.push('P');
                             srPresentCount++;
@@ -129,7 +136,7 @@ const AttendanceService = (() => {
                             if (d === targetDayInt) todayAbsentCount++;
                         }
                     } else {
-                        row.push(''); // Dates after last posted sales day (or if no posted data) remain BLANK
+                        row.push(''); // Future dates remain BLANK
                     }
                 }
 

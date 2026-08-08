@@ -246,10 +246,10 @@ function debugMetaGraphAPI() {
 // ============================================================================
 
 /**
- * Generates the message queue by running reminder evaluation.
+ * Rebuilds the message queue from the pending data prepared by the daily workflow.
  */
 function generateMessageQueue() {
-    ReminderService.processReminders();
+    ReminderService.generateMessageQueueFromPending();
     SpreadsheetApp.getActiveSpreadsheet().toast('Message queue generated successfully!', 'Sales Automation', 5);
 }
 

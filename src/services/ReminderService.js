@@ -264,5 +264,58 @@ const ReminderService = (() => {
         return generatedLogs;
     };
 
-    return { processReminders };
+    /**
+     * Rebuilds only Message_Queue from the Pending_TSO rows produced by the
+     * daily reminder workflow. This intentionally performs no reminder
+     * evaluation, pending-sheet generation, attendance update, dashboard
+     * refresh, cache write, or audit logging.
+     * @returns {number} Number of queue rows generated.
+     */
+    const generateMessageQueueFromPending = () => {
+        const config = ConfigLoader.load();
+        const dryRun = String(config['Dry_Run']).toUpperCase() === 'TRUE';
+
+        SheetService.clearDataKeepHeaders('Message_Queue');
+        if (dryRun) return 0;
+
+        const ss = SpreadsheetApp.getActiveSpreadsheet();
+        const pendingTsoSheet = ss.getSheetByName('Pending_TSO');
+        if (!pendingTsoSheet || pendingTsoSheet.getLastRow() <= 1) return 0;
+
+        const pendingTsoRows = pendingTsoSheet
+            .getRange(2, 1, pendingTsoSheet.getLastRow() - 1, pendingTsoSheet.getLastColumn())
+            .getValues();
+        const queueRows = [];
+        const timestamp = new Date();
+        const provider = config['NOTIFICATION_PROVIDER'] || 'WhatsApp';
+
+        for (let i = 0; i < pendingTsoRows.length; i++) {
+            const row = pendingTsoRows[i];
+            const salesDate = row[1];
+            const tsoId = row[2];
+            const tsoName = row[3];
+            const tsoPhone = row[4];
+            const pendingSrCount = row[7];
+            const pendingSrList = row[8];
+            const targetPhone = getDestinationPhone(tsoPhone, config);
+            const messageBody = `à¦†à¦¸à¦¸à¦¾à¦²à¦¾à¦®à§ à¦†à¦²à¦¾à¦‡à¦•à§à¦®à¥¤\n\nà¦ªà§à¦°à¦¿à¦¯à¦¼ ${tsoName},\n\nðŸ“¢ à¦¸à§‡à¦²à¦¸ à¦ªà§‹à¦¸à§à¦Ÿà¦¿à¦‚ à¦°à¦¿à¦®à¦¾à¦‡à¦¨à§à¦¡à¦¾à¦°\n\nðŸ“… à¦°à¦¿à¦ªà§‹à¦°à§à¦Ÿà¦¿à¦‚ à¦¤à¦¾à¦°à¦¿à¦–: ${salesDate}\n\nðŸ“Œ à¦®à§‹à¦Ÿ à¦¬à¦¾à¦•à¦¿ à¦à¦¸à¦†à¦°: ${pendingSrCount} à¦œà¦¨\n\nà¦¬à¦¾à¦•à¦¿ à¦¥à¦¾à¦•à¦¾ à¦à¦¸à¦†à¦°à¦¦à§‡à¦° à¦¤à¦¾à¦²à¦¿à¦•à¦¾:\n\n${pendingSrList}\n\nà¦…à¦¨à§à¦—à§à¦°à¦¹ à¦•à¦°à§‡ à¦¨à¦¿à¦°à§à¦§à¦¾à¦°à¦¿à¦¤ à¦¸à¦®à¦¯à¦¼à¦¸à§€à¦®à¦¾à¦° à¦®à¦§à§à¦¯à§‡ à¦‰à¦ªà¦°à§‡à¦° à¦à¦¸à¦†à¦°à¦¦à§‡à¦° à¦¸à§‡à¦²à¦¸ à¦ªà§‹à¦¸à§à¦Ÿà¦¿à¦‚ à¦¸à¦®à§à¦ªà¦¨à§à¦¨ à¦•à¦°à§à¦¨à¥¤\n\nâš ï¸ à¦•à§‹à¦¨à§‹ à¦à¦¸à¦†à¦° Close à¦¹à¦¯à¦¼à§‡ à¦¥à¦¾à¦•à¦²à§‡ à¦…à¦¨à§à¦—à§à¦°à¦¹ à¦•à§‡ à¦¸à¦‚à¦¶à§à¦²à¦¿à¦·à§à¦Ÿ à¦—à§à¦°à§à¦ªà§‡ à¦œà¦¾à¦¨à¦¾à¦¬à§‡à¦¨à¥¤\n\nâ„¹ï¸ à¦¯à¦¦à¦¿ à¦‡à¦¤à§‹à¦®à¦§à§à¦¯à§‡ à¦¸à§‡à¦²à¦¸ à¦ªà§‹à¦¸à§à¦Ÿà¦¿à¦‚ à¦¸à¦®à§à¦ªà¦¨à§à¦¨ à¦¹à¦¯à¦¼à§‡ à¦¥à¦¾à¦•à§‡, à¦¤à¦¾à¦¹à¦²à§‡ à¦…à¦¨à§à¦—à§à¦°à¦¹ à¦•à§‡ à¦à¦‡ à¦¬à¦¾à¦°à§à¦¤à¦¾à¦Ÿà¦¿ à¦‰à¦ªà§‡à¦•à§à¦·à¦¾ à¦•à¦°à§à¦¨à¥¤\n\nà¦§à¦¨à§à¦¯à¦¬à¦¾à¦¦à¥¤`;
+
+            const queueMessageBody = Utilities.newBlob(Utilities.base64Decode('w6DCpuKAoMOgwqbCuMOgwqbCuMOgwqbCvsOgwqbCssOgwqbCvsOgwqbCrsOgwqfCgSDDoMKm4oCgw6DCpsKyw6DCpsK+w6DCpuKAocOgwqbigKLDoMKnwoHDoMKmwq7DoMKlwqRcblxuw6DCpsKqw6DCp8KNw6DCpsKww6DCpsK/w6DCpsKvw6DCpsK8IF9fVFNPX05BTUVfXyxcblxuw7DFuOKAnMKiIMOgwqbCuMOgwqfigKHDoMKmwrLDoMKmwrggw6DCpsKqw6DCp+KAucOgwqbCuMOgwqfCjcOgwqbFuMOgwqbCv8OgwqbigJogw6DCpsKww6DCpsK/w6DCpsKuw6DCpsK+w6DCpuKAocOgwqbCqMOgwqfCjcOgwqbCocOgwqbCvsOgwqbCsFxuXG7DsMW44oCc4oCmIMOgwqbCsMOgwqbCv8OgwqbCqsOgwqfigLnDoMKmwrDDoMKnwo3DoMKmxbjDoMKmwr/DoMKm4oCaIMOgwqbCpMOgwqbCvsOgwqbCsMOgwqbCv8OgwqbigJM6IF9fU0FMRVNfREFURV9fXG5cbsOwxbjigJzFkiDDoMKmwq7DoMKn4oC5w6DCpsW4IMOgwqbCrMOgwqbCvsOgwqbigKLDoMKmwr8gw6DCpsKPw6DCpsK4w6DCpuKAoMOgwqbCsDogX19QRU5ESU5HX1NSX0NPVU5UX18gw6DCpsWTw6DCpsKoXG5cbsOgwqbCrMOgwqbCvsOgwqbigKLDoMKmwr8gw6DCpsKlw6DCpsK+w6DCpuKAosOgwqbCviDDoMKmwo/DoMKmwrjDoMKm4oCgw6DCpsKww6DCpsKmw6DCp+KAocOgwqbCsCDDoMKmwqTDoMKmwr7DoMKmwrLDoMKmwr/DoMKm4oCiw6DCpsK+OlxuXG5fX1BFTkRJTkdfU1JfTElTVF9fXG5cbsOgwqbigKbDoMKmwqjDoMKnwoHDoMKm4oCUw6DCp8KNw6DCpsKww6DCpsK5IMOgwqbigKLDoMKmwrDDoMKn4oChIMOgwqbCqMOgwqbCv8OgwqbCsMOgwqfCjcOgwqbCp8OgwqbCvsOgwqbCsMOgwqbCv8OgwqbCpCDDoMKmwrjDoMKmwq7DoMKmwq/DoMKmwrzDoMKmwrjDoMKn4oKsw6DCpsKuw6DCpsK+w6DCpsKwIMOgwqbCrsOgwqbCp8OgwqfCjcOgwqbCr8OgwqfigKEgw6DCpuKAsMOgwqbCqsOgwqbCsMOgwqfigKHDoMKmwrAgw6DCpsKPw6DCpsK4w6DCpuKAoMOgwqbCsMOgwqbCpsOgwqfigKHDoMKmwrAgw6DCpsK4w6DCp+KAocOgwqbCssOgwqbCuCDDoMKmwqrDoMKn4oC5w6DCpsK4w6DCp8KNw6DCpsW4w6DCpsK/w6DCpuKAmiDDoMKmwrjDoMKmwq7DoMKnwo3DoMKmwqrDoMKmwqjDoMKnwo3DoMKmwqggw6DCpuKAosOgwqbCsMOgwqfCgcOgwqbCqMOgwqXCpFxuXG7DosWhwqDDr8K4wo8gw6DCpuKAosOgwqfigLnDoMKmwqjDoMKn4oC5IMOgwqbCj8OgwqbCuMOgwqbigKDDoMKmwrAgQ2xvc2Ugw6DCpsK5w6DCpsKvw6DCpsK8w6DCp+KAoSDDoMKmwqXDoMKmwr7DoMKm4oCiw6DCpsKyw6DCp+KAoSDDoMKm4oCmw6DCpsKow6DCp8KBw6DCpuKAlMOgwqfCjcOgwqbCsMOgwqbCuSDDoMKm4oCiw6DCpsKww6DCp+KAoSDDoMKmwrjDoMKm4oCaw6DCpsK2w6DCp8KNw6DCpsKyw6DCpsK/w6DCpsK3w6DCp8KNw6DCpsW4IMOgwqbigJTDoMKnwo3DoMKmwrDDoMKnwoHDoMKmwqrDoMKn4oChIMOgwqbFk8OgwqbCvsOgwqbCqMOgwqbCvsOgwqbCrMOgwqfigKHDoMKmwqjDoMKlwqRcblxuw6LigJ7CucOvwrjCjyDDoMKmwq/DoMKmwqbDoMKmwr8gw6DCpuKAocOgwqbCpMOgwqfigLnDoMKmwq7DoMKmwqfDoMKnwo3DoMKmwq/DoMKn4oChIMOgwqbCuMOgwqfigKHDoMKmwrLDoMKmwrggw6DCpsKqw6DCp+KAucOgwqbCuMOgwqfCjcOgwqbFuMOgwqbCv8OgwqbigJogw6DCpsK4w6DCpsKuw6DCp8KNw6DCpsKqw6DCpsKow6DCp8KNw6DCpsKoIMOgwqbCucOgwqbCr8OgwqbCvMOgwqfigKEgw6DCpsKlw6DCpsK+w6DCpuKAosOgwqfigKEsIMOgwqbCpMOgwqbCvsOgwqbCucOgwqbCssOgwqfigKEgw6DCpuKApsOgwqbCqMOgwqfCgcOgwqbigJTDoMKnwo3DoMKmwrDDoMKmwrkgw6DCpuKAosOgwqbCsMOgwqfigKEgw6DCpsKPw6DCpuKAoSDDoMKmwqzDoMKmwr7DoMKmwrDDoMKnwo3DoMKmwqTDoMKmwr7DoMKmxbjDoMKmwr8gw6DCpuKAsMOgwqbCqsOgwqfigKHDoMKm4oCiw6DCp8KNw6DCpsK3w6DCpsK+IMOgwqbigKLDoMKmwrDDoMKnwoHDoMKmwqjDoMKlwqRcblxuw6DCpsKnw6DCpsKow6DCp8KNw6DCpsKvw6DCpsKsw6DCpsK+w6DCpsKmw6DCpcKk')).getDataAsString('UTF-8')
+                .replace('__TSO_NAME__', tsoName)
+                .replace('__SALES_DATE__', salesDate)
+                .replace('__PENDING_SR_COUNT__', pendingSrCount)
+                .replace('__PENDING_SR_LIST__', pendingSrList);
+
+            queueRows.push([
+                Utilities.getUuid(), timestamp, provider, tsoName, targetPhone, 'TSO',
+                tsoId, tsoName, salesDate, pendingSrCount, pendingSrList,
+                queueMessageBody, 'PENDING', 0, timestamp, '', ''
+            ]);
+        }
+
+        SheetService.writeMessageQueue(queueRows);
+        return queueRows.length;
+    };
+
+    return { processReminders, generateMessageQueueFromPending };
 })();
