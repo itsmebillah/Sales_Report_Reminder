@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Runtime state and generated diagnostics
+notification-sender/.session/
+notification-sender/.wwebjs_cache/
+notification-sender/logs/
+notification-sender/debug/
+
+# Local environment values
+notification-sender/.env
+
+# Service-account credentials
+notification-sender/sales-reminder-504707-cf0e2309932e.json
+
+# Ad hoc test/export outputs
+final_test_output*.json
+hierarchy_response.json
+test5.json
+package-lock.json
