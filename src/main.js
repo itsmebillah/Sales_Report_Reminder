@@ -64,7 +64,6 @@ function debugMetaGraphAPI() {
     const templateName = String(config['TEMPLATE_NAME'] || '').trim();
     const templateLanguage = String(config['TEMPLATE_LANGUAGE'] || 'en_US').trim();
     const rawToken = String(config['ACCESS_TOKEN'] || config['WhatsApp_API_Token'] || '').trim();
-    const tokenPrefix = rawToken ? rawToken.substring(0, 20) + '...' : 'MISSING';
 
     Logger.log("==================================================");
     Logger.log("1. RUNTIME CONFIGURATION VALUES");
@@ -74,7 +73,7 @@ function debugMetaGraphAPI() {
     Logger.log("TEMPLATE_NAME: " + templateName);
     Logger.log("TEMPLATE_LANGUAGE: " + templateLanguage);
     Logger.log("META_API_VERSION: " + apiVersion);
-    Logger.log("ACCESS_TOKEN Prefix: " + tokenPrefix);
+    Logger.log("ACCESS_TOKEN configured: " + (rawToken ? "YES" : "NO"));
 
     const headers = {
         'Authorization': 'Bearer ' + rawToken
@@ -159,8 +158,12 @@ function debugMetaGraphAPI() {
     }
 
     // 7. Print EXACT Payload
-    const overridePhone = String(config['OVERRIDE_PHONE'] || '').trim();
-    let recipientPhone = overridePhone !== '' ? overridePhone : '8801915966721';
+    const overridePhone = String(config['TEST_RECIPIENT_PHONE'] || config['OVERRIDE_PHONE'] || '').trim();
+    if (!overridePhone) {
+        Logger.log("Test send skipped: configure TEST_RECIPIENT_PHONE explicitly.");
+        return;
+    }
+    let recipientPhone = overridePhone;
     recipientPhone = recipientPhone.replace(/\D/g, '');
     if (recipientPhone.startsWith('0')) recipientPhone = '880' + recipientPhone.substring(1);
 

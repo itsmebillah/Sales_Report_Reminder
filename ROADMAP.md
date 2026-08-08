@@ -1,20 +1,19 @@
-# Project Roadmap
+# Roadmap
 
-## Phase 1: Foundation (Current)
-- [x] Project architecture and scaffolding
-- [ ] Design configuration schema and scripting properties
-- [ ] Build generic service layer (Sheet Service, Logger)
+## Delivered foundation
 
-## Phase 2: Core Features
-- [ ] Define spreadsheet schema (Columns: Contact, Email, Date, Status)
-- [ ] Implement reminder business logic (Scan sheet, determine eligibility)
-- [ ] Connect Email service for mock dispatches
+- [x] Modular Apps Script services and spreadsheet menu
+- [x] Sales-data copy and reminder processing workflows
+- [x] Attendance synchronization
+- [x] Message queue, retry, cleanup, and operational dashboard controls
+- [x] Decoupled Node.js notification sender
+- [x] WhatsApp Web provider and pluggable provider interfaces
 
-## Phase 3: Automation & Polish
-- [ ] Add time-driven triggers (daily cron)
-- [ ] Enhanced logging (Error notification to admin)
-- [ ] Add custom Spreadsheet menus for manual overrides/syncing
+## Next priorities
 
-## Phase 4: Expansion
-- [ ] Slack/Teams Webhook integrations
-- [ ] Analytics and dashboard summary generation
+- [ ] Add automated tests for eligibility, date, queue, and retry rules
+- [ ] Define a reproducible synthetic spreadsheet fixture
+- [ ] Add CI for syntax, secret, and documentation checks
+- [ ] Complete and verify Meta, email, SMS, and Telegram providers before enabling them
+- [ ] Add structured redacted logs and delivery observability
+- [ ] Restrict the Apps Script web deployment if anonymous access is not operationally required
