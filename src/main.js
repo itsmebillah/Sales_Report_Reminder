@@ -392,5 +392,9 @@ function copyData() {
 
   // Data paste
   target.getRange(1, 1, data.length, data[0].length).setValues(data);
+
+  // Rebuild Attendance only after the copied Sales data is committed.
+  SpreadsheetApp.flush();
+  syncAttendanceNow();
 }
 
