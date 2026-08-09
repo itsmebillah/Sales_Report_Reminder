@@ -39,6 +39,9 @@ const PendingTsoPrintService = (() => {
             .map(row => salesDateIndex >= 0 ? String(row[salesDateIndex]).trim() : '')
             .filter(Boolean))];
         const salesDate = salesDates.length === 1 ? salesDates[0] : (salesDates.length > 1 ? 'Multiple Sales Dates' : '');
+        const printDocumentTitle = salesDate
+            ? `Pending Sales Report - ${salesDate}`
+            : 'Pending Sales Report';
         const title = rows.length > 0
             ? `Pending Sales Report of ${salesDate || 'Current Sales Date'}`
             : 'No Pending Sales Data Available';
@@ -49,6 +52,7 @@ const PendingTsoPrintService = (() => {
 <html>
 <head>
   <base target="_top">
+  <title>${escapeHtml(printDocumentTitle)}</title>
   <style>
     @page { size: A4 ${orientation}; margin: 8mm; }
     * { box-sizing: border-box; }
