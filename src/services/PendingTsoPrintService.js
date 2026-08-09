@@ -50,19 +50,19 @@ const PendingTsoPrintService = (() => {
 <head>
   <base target="_top">
   <style>
-    @page { size: A4 ${orientation}; margin: 7mm; }
+    @page { size: A4 ${orientation}; margin: 8mm; }
     * { box-sizing: border-box; }
-    body { font-family: Arial, Helvetica, sans-serif; color: #1f2937; margin: 0; font-size: 9px; line-height: 1.25; }
-    h1 { color: #17365d; font-size: 16px; line-height: 1.2; margin: 0 0 4px; text-align: center; }
-    .subtitle { color: #64748b; font-size: 8px; line-height: 1.2; margin: 0 0 8px; text-align: center; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #1f2937; margin: 0; font-size: 10px; line-height: 1.35; }
+    h1 { color: #17365d; font-size: 18px; line-height: 1.2; margin: 0 0 5px; text-align: center; }
+    .subtitle { color: #64748b; font-size: 9px; line-height: 1.2; margin: 0 0 10px; text-align: center; }
     table { border-collapse: collapse; table-layout: fixed; width: 100%; }
     thead { display: table-header-group; }
     tr { break-inside: avoid; page-break-inside: avoid; }
-    th, td { border: 1px solid #94a3b8; overflow-wrap: anywhere; padding: 3px 4px; text-align: left; vertical-align: top; }
-    th { background: #17365d; color: #ffffff; font-size: 8px; font-weight: 700; line-height: 1.2; text-align: center; }
+    th, td { border: 1px solid #94a3b8; overflow-wrap: anywhere; padding: 4px 5px; text-align: left; vertical-align: top; }
+    th { background: #17365d; color: #ffffff; font-size: 9px; font-weight: 700; line-height: 1.25; text-align: center; }
     td:nth-child(1), td:nth-child(2), td:nth-child(3), td:nth-child(5), td:nth-child(6), td:nth-child(8) { text-align: center; }
     td:nth-child(1), td:nth-child(2), td:nth-child(3), td:nth-child(5), td:nth-child(6), td:nth-child(8) { white-space: nowrap; }
-    td:nth-child(9) { font-size: 8px; line-height: 1.25; white-space: normal; }
+    td:nth-child(9) { font-size: 9px; line-height: 1.35; white-space: normal; }
     tbody tr:nth-child(even) { background: #f8fafc; }
     .empty { border: 1px solid #cbd5e1; color: #475569; font-size: 14px; margin-top: 28px; padding: 20px; text-align: center; }
     .actions { margin: 14px 0 0; text-align: center; }
