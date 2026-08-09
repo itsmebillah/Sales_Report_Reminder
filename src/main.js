@@ -27,6 +27,7 @@ function onOpen(e) {
           .addSeparator()
           .addItem('📊  Sender Status', 'showSenderStatus')
           .addItem('📈  System Dashboard', 'openSystemDashboard')
+          .addItem('🖨️ Print Pending TSO Report', 'printPendingTsoReport')
           .addSeparator()
           .addItem('Sync Attendance Now', 'syncAttendanceNow')
           .addItem('Setup Environment Sheets & Triggers', 'runEnvironmentSetup')
@@ -51,6 +52,13 @@ function processDailyReminders() {
  */
 function syncAttendanceNow() {
     return AttendanceService.updateAttendance();
+}
+
+/**
+ * Opens a print-only, read-only view of the current Pending_TSO report.
+ */
+function printPendingTsoReport() {
+    return PendingTsoPrintService.openPrintDialog();
 }
 
 /**
