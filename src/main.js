@@ -62,6 +62,13 @@ function printPendingTsoReport() {
 }
 
 /**
+ * Generates the current Pending_TSO report as a named PDF for the print dialog.
+ */
+function generatePendingTsoPdf() {
+    return PendingTsoPrintService.generatePdf();
+}
+
+/**
  * Temporary diagnostic function to perform live Graph API verification.
  */
 function debugMetaGraphAPI() {

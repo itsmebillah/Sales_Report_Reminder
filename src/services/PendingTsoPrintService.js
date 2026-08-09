@@ -28,7 +28,7 @@ const PendingTsoPrintService = (() => {
 </table>`;
     };
 
-    const openPrintDialog = () => {
+    const getReportModel = () => {
         const ss = SpreadsheetApp.getActiveSpreadsheet();
         const sheet = ss ? ss.getSheetByName('Pending_TSO') : null;
         const data = sheet ? sheet.getDataRange().getDisplayValues() : [];
@@ -39,13 +39,51 @@ const PendingTsoPrintService = (() => {
             .map(row => salesDateIndex >= 0 ? String(row[salesDateIndex]).trim() : '')
             .filter(Boolean))];
         const salesDate = salesDates.length === 1 ? salesDates[0] : (salesDates.length > 1 ? 'Multiple Sales Dates' : '');
-        const printDocumentTitle = salesDate
-            ? `Pending Sales Report - ${salesDate}`
-            : 'Pending Sales Report';
-        const title = rows.length > 0
-            ? `Pending Sales Report of ${salesDate || 'Current Sales Date'}`
-            : 'No Pending Sales Data Available';
-        const orientation = headers.length > 6 ? 'landscape' : 'portrait';
+
+        return {
+            headers: headers,
+            rows: rows,
+            salesDate: salesDate,
+            title: rows.length > 0
+                ? `Pending Sales Report of ${salesDate || 'Current Sales Date'}`
+                : 'No Pending Sales Data Available',
+            printDocumentTitle: salesDate ? `Pending Sales Report - ${salesDate}` : 'Pending Sales Report',
+            orientation: headers.length > 6 ? 'landscape' : 'portrait'
+        };
+    };
+
+    const buildPdfHtml = (reportHtml, report) => `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>${escapeHtml(report.printDocumentTitle)}</title>
+  <style>
+    @page { size: A4 ${report.orientation}; margin: 8mm; }
+    * { box-sizing: border-box; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #1f2937; margin: 0; font-size: 10px; line-height: 1.35; }
+    h1 { color: #17365d; font-size: 18px; line-height: 1.2; margin: 0 0 5px; text-align: center; }
+    .subtitle { color: #64748b; font-size: 9px; line-height: 1.2; margin: 0 0 10px; text-align: center; }
+    table { border-collapse: collapse; table-layout: fixed; width: 100%; }
+    thead { display: table-header-group; }
+    tr { break-inside: avoid; page-break-inside: avoid; }
+    th, td { border: 1px solid #94a3b8; overflow-wrap: anywhere; padding: 4px 5px; text-align: left; vertical-align: top; }
+    th { background: #17365d; color: #ffffff; font-size: 9px; font-weight: 700; line-height: 1.25; text-align: center; }
+    td:nth-child(1), td:nth-child(2), td:nth-child(3), td:nth-child(5), td:nth-child(6), td:nth-child(8) { text-align: center; white-space: nowrap; }
+    td:nth-child(9) { font-size: 9px; line-height: 1.35; white-space: normal; }
+    tbody tr:nth-child(even) { background: #f8fafc; }
+    .empty { border: 1px solid #cbd5e1; color: #475569; font-size: 14px; margin-top: 28px; padding: 20px; text-align: center; }
+  </style>
+</head>
+<body>
+  <h1>${escapeHtml(report.title)}</h1>
+  <p class="subtitle">Generated from the current Pending_TSO report</p>
+  ${reportHtml}
+</body>
+</html>`;
+
+    const openPrintDialog = () => {
+        const report = getReportModel();
+        const { headers, rows, salesDate, title, printDocumentTitle, orientation } = report;
         const reportHtml = rows.length > 0 ? buildTable(headers, rows) : '<p class="empty">No Pending Sales Data Available</p>';
 
         const html = `<!DOCTYPE html>
@@ -78,8 +116,35 @@ const PendingTsoPrintService = (() => {
   <h1>${escapeHtml(title)}</h1>
   <p class="subtitle">Generated from the current Pending_TSO report</p>
   ${reportHtml}
-  <div class="actions"><button type="button" onclick="window.print()">Print Report</button></div>
-  <script>window.addEventListener('load', () => setTimeout(() => window.print(), 250));</script>
+  <div class="actions"><button type="button" id="downloadPdf" onclick="downloadPdf()">Download PDF</button></div>
+  <script>
+    function downloadPdf() {
+      const button = document.getElementById('downloadPdf');
+      button.disabled = true;
+      button.textContent = 'Preparing PDF...';
+      google.script.run
+        .withSuccessHandler(function(result) {
+          const binary = atob(result.base64);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+          const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = result.filename;
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+          button.textContent = 'PDF Downloaded';
+        })
+        .withFailureHandler(function(error) {
+          button.disabled = false;
+          button.textContent = 'Download PDF';
+          alert('Could not generate the PDF: ' + error.message);
+        })
+        .generatePendingTsoPdf();
+    }
+  </script>
 </body>
 </html>`;
 
@@ -91,5 +156,20 @@ const PendingTsoPrintService = (() => {
         return { success: true, rows: rows.length, salesDate: salesDate || null, orientation: orientation };
     };
 
-    return { openPrintDialog };
+    const generatePdf = () => {
+        const report = getReportModel();
+        const reportHtml = report.rows.length > 0
+            ? buildTable(report.headers, report.rows)
+            : '<p class="empty">No Pending Sales Data Available</p>';
+        const pdfBlob = HtmlService.createHtmlOutput(buildPdfHtml(reportHtml, report))
+            .getAs(MimeType.PDF)
+            .setName(`${report.printDocumentTitle}.pdf`);
+
+        return {
+            filename: pdfBlob.getName(),
+            base64: Utilities.base64Encode(pdfBlob.getBytes())
+        };
+    };
+
+    return { openPrintDialog, generatePdf };
 })();
