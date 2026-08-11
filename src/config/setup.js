@@ -227,7 +227,7 @@ const EnvironmentSetup = (() => {
             'Queue_ID', 'Timestamp', 'Provider', 'Recipient_Name', 'Recipient_Phone',
             'Recipient_Type', 'TSO_ID', 'TSO_Name', 'Sales_Date', 'Pending_SR_Count',
             'Pending_SR_List', 'Message_Body', 'Status', 'Retry_Count', 'Created_At',
-            'Sent_At', 'Error_Message'
+            'Sent_At', 'Error_Message', 'RSM_ID', 'RSM_Name', 'Idempotency_Key'
         ];
         createOrClearSheet(ss, 'Message_Queue', msgQueueHeaders);
 

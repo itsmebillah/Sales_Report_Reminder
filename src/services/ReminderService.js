@@ -20,6 +20,64 @@ const ReminderService = (() => {
         return digits;
     };
 
+    const isValidRsmPhone = (rawPhone) => /^8801\d{9}$/.test(getDestinationPhone(rawPhone, { TEST_MODE: 'FALSE', OVERRIDE_PHONE: '' }));
+
+    const buildRsmSummaryMessage = (rsmName, salesDate, tsoSummaries, totalPendingSrCount) => {
+        const tsoDetails = tsoSummaries.map(group =>
+            `TSO: ${group.tsoName} (${group.tsoId})\nPending SR: ${group.pendingSrCount}\nSR details:\n${group.pendingSrList}`
+        ).join('\n\n');
+        return `Assalamu Alaikum.\n\nDear ${rsmName},\n\nSales Posting Reminder Summary\nSales Date: ${salesDate}\nTotal Pending SR: ${totalPendingSrCount}\n\n${tsoDetails}`;
+    };
+
+    const buildRsmQueueRows = (tsoGroups, rsmMap, rsmConflicts, formattedSalesDate, timestamp, provider, config, dryRun) => {
+        const groupsByRsm = {};
+        const seenIdempotencyKeys = new Set();
+        const queueRows = [];
+        const skipped = [];
+        Object.keys(tsoGroups).forEach(tsoId => {
+            const group = tsoGroups[tsoId];
+            const rsmId = String(group.rsmId || '').trim();
+            if (!rsmId) return;
+            if (!groupsByRsm[rsmId]) groupsByRsm[rsmId] = [];
+            groupsByRsm[rsmId].push({
+                tsoId: group.tsoId,
+                tsoName: group.tsoName,
+                pendingSrCount: group.srs.length,
+                pendingSrList: group.srs.map(s => `• ${s.SR_ID} - ${s.SR_Name || s.SR_NAME}`).join('\n')
+            });
+        });
+        Object.keys(groupsByRsm).forEach(rsmId => {
+            const idempotencyKey = `RSM_SUMMARY|${formattedSalesDate}|${rsmId}`;
+            if (seenIdempotencyKeys.has(idempotencyKey)) return;
+            seenIdempotencyKeys.add(idempotencyKey);
+            if (rsmConflicts[rsmId]) {
+                skipped.push({ rsmId, reason: rsmConflicts[rsmId] });
+                return;
+            }
+            const rsm = rsmMap[rsmId];
+            if (!rsm || !isValidRsmPhone(rsm.RSM_Phone)) {
+                skipped.push({ rsmId, reason: 'RSM phone is missing or invalid in Contact list' });
+                return;
+            }
+            const tsoSummaries = groupsByRsm[rsmId];
+            const totalPendingSrCount = tsoSummaries.reduce((total, group) => total + group.pendingSrCount, 0);
+            const pendingSrList = tsoSummaries.map(group => `TSO: ${group.tsoName} (${group.tsoId})\nPending SR: ${group.pendingSrCount}\n${group.pendingSrList}`).join('\n\n');
+            const targetPhone = getDestinationPhone(rsm.RSM_Phone, config);
+            if (!dryRun) {
+                queueRows.push({
+                    Queue_ID: Utilities.getUuid(), Timestamp: timestamp, Provider: provider,
+                    Recipient_Name: rsm.RSM_Name, Recipient_Phone: targetPhone, Recipient_Type: 'RSM',
+                    Sales_Date: formattedSalesDate, Pending_SR_Count: totalPendingSrCount,
+                    Pending_SR_List: pendingSrList,
+                    Message_Body: buildRsmSummaryMessage(rsm.RSM_Name, formattedSalesDate, tsoSummaries, totalPendingSrCount),
+                    Status: 'PENDING', Retry_Count: 0, Created_At: timestamp,
+                    RSM_ID: rsm.RSM_ID, RSM_Name: rsm.RSM_Name, Idempotency_Key: idempotencyKey
+                });
+            }
+        });
+        return { queueRows, skipped };
+    };
+
     const processReminders = () => {
         const startTime = new Date().getTime();
         const generatedLogs = [];
@@ -35,10 +93,11 @@ const ReminderService = (() => {
         const formattedSalesDate = DateUtils.formatDate(salesDateObj, tz);
 
         const hierarchyMap = SheetService.readHierarchyMap(); // Reading from Hierarchy sheet
-        const { tsoMap, srMap } = SheetService.readContactMap(); // Reading from Contact list sheet
+        const { tsoMap, srMap, rsmMap, rsmConflicts } = SheetService.readContactMap(); // Reading from Contact list sheet
         const salesRecords = SheetService.readDailySalesForDayBySR(targetDayInt); // Reading from Sales sheet
 
         // Phase 1 Queue Cleanup (Ensuring clean storage at runtime)
+        SheetService.ensureMessageQueueHeaders(['RSM_ID', 'RSM_Name', 'Idempotency_Key']);
         SheetService.clearDataKeepHeaders('Pending_SR');
         SheetService.clearDataKeepHeaders('Pending_TSO');
         SheetService.clearDataKeepHeaders('Message_Queue');
@@ -224,6 +283,21 @@ const ReminderService = (() => {
             generatedLogs.push(auditRecord);
         }
 
+        const rsmQueueResult = buildRsmQueueRows(
+            tsoGroups, rsmMap, rsmConflicts, formattedSalesDate, timestamp,
+            config['NOTIFICATION_PROVIDER'] || 'WhatsApp', config, dryRun
+        );
+        messageQueueRows.push(...rsmQueueResult.queueRows);
+        rsmQueueResult.skipped.forEach(skipped => {
+            const auditRecord = [
+                new Date(), 'N/A', 'N/A', 'Multiple', 'Multiple', '', '', skipped.rsmId,
+                (rsmMap[skipped.rsmId] && rsmMap[skipped.rsmId].RSM_Name) || '', formattedSalesDate,
+                'RSM', '', 'SKIPPED', skipped.reason
+            ];
+            SheetService.writeLog(auditRecord);
+            generatedLogs.push(auditRecord);
+        });
+
         if (!dryRun) {
             SheetService.writePendingSRs(pendingSrRows);
             SheetService.writePendingTSOs(pendingTsoRows);
@@ -317,5 +391,5 @@ const ReminderService = (() => {
         return queueRows.length;
     };
 
-    return { processReminders, generateMessageQueueFromPending };
+    return { processReminders, generateMessageQueueFromPending, buildRsmQueueRows };
 })();

@@ -14,6 +14,18 @@ const SheetService = (() => {
         return sheet;
     };
 
+    const ensureMessageQueueHeaders = (requiredHeaders) => {
+        const sheet = getSheetSafe('Message_Queue');
+        const lastColumn = sheet.getLastColumn();
+        const headers = lastColumn > 0 ? sheet.getRange(1, 1, 1, lastColumn).getValues()[0] : [];
+        const existing = new Set(headers.map(header => String(header || '').trim()).filter(Boolean));
+        const missing = requiredHeaders.filter(header => !existing.has(header));
+        if (missing.length > 0) {
+            sheet.getRange(1, lastColumn + 1, 1, missing.length).setValues([missing]).setFontWeight('bold');
+        }
+        return headers.concat(missing);
+    };
+
     /**
      * Parses the Hierarchy sheet into a fast memory dictionary based on SR_ID.
      * Dynamically reads header row to eliminate hardcoded column index dependencies.
@@ -86,13 +98,15 @@ const SheetService = (() => {
 
     /**
      * Parses the Contact list sheet into dictionaries for TSO and SR lookup.
-     * @returns {Object} { tsoMap, srMap }
+     * @returns {Object} { tsoMap, srMap, rsmMap, rsmConflicts }
      */
     const readContactMap = () => {
         const sheet = getSheetSafe('Contact list');
         const data = sheet.getDataRange().getValues();
         const tsoMap = {};
         const srMap = {};
+        const rsmMap = {};
+        const rsmConflicts = {};
 
         for (let i = 1; i < data.length; i++) {
             const row = data[i];
@@ -111,6 +125,20 @@ const SheetService = (() => {
                 SR_Phone: row[8]
             };
 
+            const rsmId = String(row[0] !== undefined ? row[0] : '').trim();
+            const rsmName = String(row[1] !== undefined ? row[1] : '').trim();
+            const rsmPhone = String(row[2] !== undefined ? row[2] : '').trim();
+            const normalizedRsmPhone = rsmPhone.replace(/\D/g, '');
+            if (rsmId && rsmId !== 'undefined') {
+                const existingRsm = rsmMap[rsmId];
+                if (existingRsm && (existingRsm.RSM_Name !== rsmName || existingRsm.Normalized_Phone !== normalizedRsmPhone)) {
+                    delete rsmMap[rsmId];
+                    rsmConflicts[rsmId] = 'Conflicting RSM name or phone entries in Contact list';
+                } else if (!existingRsm && !rsmConflicts[rsmId]) {
+                    rsmMap[rsmId] = { RSM_ID: rsmId, RSM_Name: rsmName, RSM_Phone: rsmPhone, Normalized_Phone: normalizedRsmPhone };
+                }
+            }
+
             if (tsoId && tsoId !== 'undefined' && tsoId !== '' && !tsoMap[tsoId]) {
                 tsoMap[tsoId] = contactObj;
             }
@@ -118,7 +146,7 @@ const SheetService = (() => {
                 srMap[srId] = contactObj;
             }
         }
-        return { tsoMap, srMap };
+        return { tsoMap, srMap, rsmMap, rsmConflicts };
     };
 
     /**
@@ -259,7 +287,20 @@ const SheetService = (() => {
     const writeMessageQueue = (rows) => {
         if (!rows || rows.length === 0) return;
         const sheet = getSheetSafe('Message_Queue');
-        sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+        const queueWidth = sheet.getLastColumn();
+        const headers = sheet.getRange(1, 1, 1, queueWidth).getValues()[0];
+        const normalizedRows = rows.map(row => {
+            if (!Array.isArray(row)) {
+                return headers.map(header => {
+                    const key = String(header || '').trim();
+                    return Object.prototype.hasOwnProperty.call(row, key) ? row[key] : '';
+                });
+            }
+            const normalized = row.slice();
+            while (normalized.length < queueWidth) normalized.push('');
+            return normalized;
+        });
+        sheet.getRange(sheet.getLastRow() + 1, 1, normalizedRows.length, queueWidth).setValues(normalizedRows);
     };
 
     const readReminderSystemCache = (targetSalesDate) => {
@@ -291,6 +332,7 @@ const SheetService = (() => {
     return {
         readHierarchyMap,
         readContactMap,
+        ensureMessageQueueHeaders,
         readHierarchyBySR,
         readDailySalesForDayBySR,
         writeLog,
