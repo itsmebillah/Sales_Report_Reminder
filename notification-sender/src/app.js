@@ -70,6 +70,106 @@ async function main() {
     process.on('SIGINT', () => shutdown('SIGINT'));
     process.on('SIGTERM', () => shutdown('SIGTERM'));
 
+    let isolatedTestInProgress = false;
+
+    /**
+     * Runs only when the existing PM2 process receives the explicit IPC command
+     * RUN_ISOLATED_WHATSAPP_TEST. It never reads or writes Message_Queue and
+     * does not enter the normal queue-processing path.
+     */
+    const runIsolatedWhatsAppTest = async () => {
+        if (isolatedTestInProgress) {
+            return { finalState: 'FAILED', error: 'An isolated WhatsApp test is already in progress.' };
+        }
+
+        isolatedTestInProgress = true;
+        let ownsProviderLifecycle = false;
+        let result;
+
+        try {
+            // This reads only Settings so the test always uses the configured
+            // TEST_RECIPIENT_PHONE and TEST_MESSAGE, never a queue recipient.
+            const testConfig = await ConfigService.reload(sheetService);
+            const recipientPhone = testConfig.testRecipientPhone;
+            const testMessage = testConfig.testMessage;
+
+            if (!recipientPhone) {
+                throw new Error('TEST_RECIPIENT_PHONE is not configured.');
+            }
+            if (!testMessage) {
+                throw new Error('TEST_MESSAGE is not configured.');
+            }
+
+            if (!whatsappProvider.isConnected()) {
+                ownsProviderLifecycle = true;
+                const providerConfig = ConfigService.getProviderConfig('WHATSAPP_WEB');
+                await whatsappProvider.initialize(providerConfig);
+                await whatsappProvider.connect(120000);
+            }
+
+            Logger.info('[ISOLATED_TEST] TEST_SEND_STARTED');
+            result = await whatsappProvider.send({
+                recipientPhone: recipientPhone,
+                message: testMessage
+            });
+
+            const finalState = result.success && result.ack >= 1
+                ? 'SENT'
+                : result.outcome === 'CONFIRMATION_PENDING'
+                    ? 'CONFIRMATION_PENDING'
+                    : 'FAILED';
+
+            const diagnostic = {
+                messageCreateCaptured: Boolean(result.messageCreateCaptured),
+                messageId: result.messageId || '',
+                ackReceived: Boolean(result.ackReceived),
+                ackValue: result.ack !== undefined ? result.ack : '',
+                providerSuccess: Boolean(result.success),
+                finalState: finalState,
+                error: result.error || ''
+            };
+
+            Logger.info(`[ISOLATED_TEST] MESSAGE_CREATE_CAPTURED=${diagnostic.messageCreateCaptured}`);
+            Logger.info(`[ISOLATED_TEST] MESSAGE_ID=${diagnostic.messageId}`);
+            Logger.info(`[ISOLATED_TEST] ACK_RECEIVED=${diagnostic.ackReceived}`);
+            Logger.info(`[ISOLATED_TEST] ACK_VALUE=${diagnostic.ackValue}`);
+            Logger.info(`[ISOLATED_TEST] PROVIDER_SUCCESS=${diagnostic.providerSuccess}`);
+            Logger.info(`[ISOLATED_TEST] FINAL_STATE=${diagnostic.finalState}`);
+            return diagnostic;
+        } catch (err) {
+            const diagnostic = {
+                messageCreateCaptured: false,
+                messageId: '',
+                ackReceived: false,
+                ackValue: '',
+                providerSuccess: false,
+                finalState: 'FAILED',
+                error: err.message
+            };
+            Logger.error(`[ISOLATED_TEST] FINAL_STATE=FAILED (${err.message})`);
+            return diagnostic;
+        } finally {
+            if (ownsProviderLifecycle && whatsappProvider.isConnected()) {
+                await whatsappProvider.disconnect();
+            }
+            isolatedTestInProgress = false;
+        }
+    };
+
+    // PM2 delivers custom IPC payloads either directly or in data. This handler
+    // is deliberately inert unless the exact explicit command is received.
+    process.on('message', async (ipcMessage) => {
+        const command = typeof ipcMessage === 'string'
+            ? ipcMessage
+            : ipcMessage && (ipcMessage.command || (ipcMessage.data && (ipcMessage.data.command || ipcMessage.data)));
+        if (command !== 'RUN_ISOLATED_WHATSAPP_TEST') return;
+
+        const diagnostic = await runIsolatedWhatsAppTest();
+        if (typeof process.send === 'function') {
+            process.send({ type: 'ISOLATED_WHATSAPP_TEST_RESULT', data: diagnostic });
+        }
+    });
+
     try {
         // Step 1: Connect to Google Sheets API
         Logger.info('Step 1: Connecting to Google Sheets API...');
@@ -203,6 +303,25 @@ async function main() {
                                 'Last_Run_Time': nowIso,
                                 'Last_Message_Time': nowIso,
                                 'Messages_Sent_Today': String(messagesSentToday)
+                            });
+
+                        } else if (sendResult.outcome === 'CONFIRMATION_PENDING') {
+                            // Dispatch may already have reached WhatsApp, but the worker
+                            // cannot prove it with a canonical ID and ACK. Never requeue
+                            // this state automatically: doing so could duplicate a message.
+                            const diagnostic = sendResult.error || 'Dispatch was attempted, but delivery confirmation could not be correlated safely. Automatic retry is blocked to prevent a duplicate message.';
+                            await sheetService.updateQueueResult(queueSheetName, queueRecord.rowIndex, {
+                                status: 'CONFIRMATION_PENDING',
+                                sentAt: '',
+                                messageId: sendResult.messageId || '',
+                                ack: sendResult.ack !== undefined ? sendResult.ack : '',
+                                errorMessage: diagnostic,
+                                retryCount: queueRecord.retryCount || 0
+                            });
+                            Logger.warn(`âš ï¸ [CONFIRMATION_PENDING] Queue ID: ${queueRecord.queueId} | Row ${queueRecord.rowIndex} -> ${diagnostic}`);
+                            await sheetService.updateSettings({
+                                'Sender_Status': 'Running',
+                                'Last_Run_Time': nowIso
                             });
 
                         } else {

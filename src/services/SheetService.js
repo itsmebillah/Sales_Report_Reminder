@@ -14,15 +14,23 @@ const SheetService = (() => {
         return sheet;
     };
 
+    /**
+     * Appends missing Message_Queue headers without clearing, reordering, or
+     * rewriting any existing queue data.
+     */
     const ensureMessageQueueHeaders = (requiredHeaders) => {
         const sheet = getSheetSafe('Message_Queue');
         const lastColumn = sheet.getLastColumn();
-        const headers = lastColumn > 0 ? sheet.getRange(1, 1, 1, lastColumn).getValues()[0] : [];
+        const headers = lastColumn > 0
+            ? sheet.getRange(1, 1, 1, lastColumn).getValues()[0]
+            : [];
         const existing = new Set(headers.map(header => String(header || '').trim()).filter(Boolean));
         const missing = requiredHeaders.filter(header => !existing.has(header));
+
         if (missing.length > 0) {
             sheet.getRange(1, lastColumn + 1, 1, missing.length).setValues([missing]).setFontWeight('bold');
         }
+
         return headers.concat(missing);
     };
 
@@ -129,13 +137,22 @@ const SheetService = (() => {
             const rsmName = String(row[1] !== undefined ? row[1] : '').trim();
             const rsmPhone = String(row[2] !== undefined ? row[2] : '').trim();
             const normalizedRsmPhone = rsmPhone.replace(/\D/g, '');
+
+            // An RSM can appear on multiple Contact list rows. Keep a mapping
+            // only when all repeated rows agree; otherwise never choose one
+            // phone number arbitrarily for an RSM summary message.
             if (rsmId && rsmId !== 'undefined') {
                 const existingRsm = rsmMap[rsmId];
                 if (existingRsm && (existingRsm.RSM_Name !== rsmName || existingRsm.Normalized_Phone !== normalizedRsmPhone)) {
                     delete rsmMap[rsmId];
                     rsmConflicts[rsmId] = 'Conflicting RSM name or phone entries in Contact list';
                 } else if (!existingRsm && !rsmConflicts[rsmId]) {
-                    rsmMap[rsmId] = { RSM_ID: rsmId, RSM_Name: rsmName, RSM_Phone: rsmPhone, Normalized_Phone: normalizedRsmPhone };
+                    rsmMap[rsmId] = {
+                        RSM_ID: rsmId,
+                        RSM_Name: rsmName,
+                        RSM_Phone: rsmPhone,
+                        Normalized_Phone: normalizedRsmPhone
+                    };
                 }
             }
 

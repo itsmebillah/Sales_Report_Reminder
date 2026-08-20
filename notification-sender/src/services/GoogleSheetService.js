@@ -297,7 +297,11 @@ class GoogleSheetService {
         }
 
         const status = updateData.status || 'SENT';
-        const sentAt = updateData.sentAt || new Date().toISOString();
+        // An explicitly supplied empty value means the message was not
+        // confirmed. Do not replace it with a misleading timestamp.
+        const sentAt = Object.prototype.hasOwnProperty.call(updateData, 'sentAt')
+            ? updateData.sentAt
+            : '';
         const messageId = updateData.messageId || '';
         const errorMsg = updateData.errorMessage || '';
         const retryCount = updateData.retryCount !== undefined ? updateData.retryCount : 0;
@@ -370,7 +374,7 @@ class GoogleSheetService {
     }
 
     /**
-     * Ensures required Phase 5.1 headers (Processing_Started_At, Worker_ID, ACK) exist in Row 1 of queue sheet.
+     * Ensures permanent delivery-tracking headers exist in Row 1 of queue sheet.
      * Appends missing headers at the end of Row 1 without modifying existing column order.
      * @param {string} queueSheetName
      * @returns {Promise<Object>} Map of header names to 0-indexed column positions.
@@ -386,7 +390,10 @@ class GoogleSheetService {
         });
 
         const headers = (headerResp.data.values && headerResp.data.values[0]) ? [...headerResp.data.values[0]] : [];
-        const requiredHeaders = ['Processing_Started_At', 'Worker_ID', 'ACK', 'Recovery_Time', 'Recovery_Reason'];
+        const requiredHeaders = [
+            'Status', 'Retry_Count', 'Sent_At', 'Error_Message', 'Message_ID',
+            'ACK', 'Processing_Started_At', 'Worker_ID', 'Recovery_Time', 'Recovery_Reason'
+        ];
         let headersModified = false;
 
         for (const reqHeader of requiredHeaders) {
