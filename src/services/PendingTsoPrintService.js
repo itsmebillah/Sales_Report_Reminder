@@ -161,8 +161,9 @@ const PendingTsoPrintService = (() => {
         const reportHtml = report.rows.length > 0
             ? buildTable(report.headers, report.rows)
             : '<p class="empty">No Pending Sales Data Available</p>';
-        const pdfBlob = HtmlService.createHtmlOutput(buildPdfHtml(reportHtml, report))
-            .getAs(MimeType.PDF)
+        const htmlContent = buildPdfHtml(reportHtml, report);
+        const pdfBlob = Utilities.newBlob(htmlContent, 'text/html', `${report.printDocumentTitle}.html`)
+            .getAs('application/pdf')
             .setName(`${report.printDocumentTitle}.pdf`);
 
         return {
