@@ -431,6 +431,38 @@ class WhatsAppWebProvider {
     }
 
     /**
+     * Returns only WhatsApp's canonical serialised message ID. The ACK event
+     * and Client#getMessageById both use this form.
+     */
+    getSerializedMessageId(message) {
+        return message && message.id && typeof message.id._serialized === 'string'
+            ? message.id._serialized
+            : null;
+    }
+
+    /**
+     * Identifies the outgoing message created by this single sequential send.
+     * Recipient, body, and canonical ID must all match.
+     */
+    isExpectedOutgoingMessage(message, targetJids, body) {
+        if (!message || !message.fromMe || !this.getSerializedMessageId(message)) return false;
+
+        const recipient = typeof message.to === 'string'
+            ? message.to
+            : (message.to && message.to._serialized) ||
+                (message.id && message.id.remote && message.id.remote._serialized) || '';
+
+        const expectedRecipients = Array.isArray(targetJids) ? targetJids : [targetJids];
+        return expectedRecipients.includes(recipient) && String(message.body || '') === String(body);
+    }
+
+    getOutgoingMessageIds(messages) {
+        return new Set((messages || [])
+            .map((item) => this.getSerializedMessageId(item))
+            .filter(Boolean));
+    }
+
+    /**
      * Sends a WhatsApp text message to the specified recipient using server-validated number resolution (getNumberId).
      * Monitors ACK state for up to 30 seconds to ensure message reaches WhatsApp servers (ACK >= 1).
      * @param {Object} queueRecord Record containing recipientPhone and message text.
@@ -457,39 +489,99 @@ class WhatsAppWebProvider {
             cleanDigits = '88' + cleanDigits;
         }
 
-        Logger.info(`Resolving WhatsApp ID (getNumberId) for phone: ${phone} (digits: ${cleanDigits})...`);
-
-        // 1. Resolve recipient via WhatsApp Web server
-        const numberId = await this.client.getNumberId(cleanDigits);
-
-        Logger.info('==================================================');
-        Logger.info('[RECIPIENT RESOLUTION] getNumberId() Result:');
-        console.log(JSON.stringify(numberId, null, 2));
-        Logger.info('==================================================');
-
-        // 2. Validate recipient WhatsApp registration
-        if (!numberId) {
-            const errorMsg = `Recipient phone number (${phone} -> ${cleanDigits}) is NOT registered on WhatsApp or could not be resolved by WhatsApp Web server.`;
-            Logger.error(`✗ RECIPIENT RESOLUTION FAILED: ${errorMsg}`);
-            return {
-                success: false,
-                messageId: null,
-                timestamp: new Date().toISOString(),
-                error: errorMsg
-            };
-        }
-
-        // 3. Build the send JID using @c.us (whatsapp-web.js internally uses getChat() which requires @c.us format)
-        //    getNumberId() may return @lid JIDs on newer WhatsApp accounts — sendMessage() cannot find the chat using @lid.
-        //    We use getNumberId() ONLY to confirm the number is registered. The actual dispatch always uses digits@c.us.
         const sendJid = `${cleanDigits}@c.us`;
-        Logger.info(`✓ Recipient confirmed registered on WhatsApp.`);
-        Logger.info(`  getNumberId() resolved : ${numberId._serialized} (server: ${numberId.server})`);
-        Logger.info(`  sendMessage() target   : ${sendJid} (@c.us required by whatsapp-web.js getChat() internals)`);
+        let dispatched = false;
+        let messageId = null;
+        let currentAck = 0;
+        let messageCreateCaptured = false;
+        let ackReceived = false;
+        const ackByMessageId = new Map();
+        let targetChat = null;
+        let preDispatchMessageIds = new Set();
+        const dispatchStartedAt = Math.floor(Date.now() / 1000);
+        let numberId = null;
+        let ackListener = null;
+        let createdMessageListener = null;
 
         try {
+            Logger.info(`Resolving WhatsApp ID (getNumberId) for phone: ${phone} (digits: ${cleanDigits})...`);
+
+            // 1. Resolve recipient via WhatsApp Web server
+            numberId = await this.client.getNumberId(cleanDigits);
+
+            Logger.info('==================================================');
+            Logger.info('[RECIPIENT RESOLUTION] getNumberId() Result:');
+            console.log(JSON.stringify(numberId, null, 2));
+            Logger.info('==================================================');
+
+            // 2. Validate recipient WhatsApp registration
+            if (!numberId) {
+                const errorMsg = `Recipient phone number (${phone} -> ${cleanDigits}) is NOT registered on WhatsApp or could not be resolved by WhatsApp Web server.`;
+                Logger.error(`✗ RECIPIENT RESOLUTION FAILED: ${errorMsg}`);
+                return {
+                    success: false,
+                    outcome: 'DEFINITE_FAILURE',
+                    messageId: null,
+                    timestamp: new Date().toISOString(),
+                    error: errorMsg
+                };
+            }
+
+            // 3. Build the send JID using @c.us (whatsapp-web.js internally uses getChat() which requires @c.us format)
+            //    getNumberId() may return @lid JIDs on newer WhatsApp accounts — sendMessage() cannot find the chat using @lid.
+            //    We use getNumberId() ONLY to confirm the number is registered. The actual dispatch always uses digits@c.us.
+            Logger.info(`✓ Recipient confirmed registered on WhatsApp.`);
+            Logger.info(`  getNumberId() resolved : ${numberId._serialized} (server: ${numberId.server})`);
+            Logger.info(`  sendMessage() target   : ${sendJid} (@c.us required by whatsapp-web.js getChat() internals)`);
+
+            // message_create is not guaranteed for locally-created outgoing
+            // messages in current WhatsApp Web. Keep a bounded before-send snapshot
+            // so the one newly-created matching outgoing model can be identified
+            // without guessing an ID.
+            try {
+                targetChat = await this.client.getChatById(sendJid);
+                const preDispatchMessages = await targetChat.fetchMessages({ limit: 50, fromMe: true });
+                preDispatchMessageIds = this.getOutgoingMessageIds(preDispatchMessages);
+                Logger.info(`[CHAT SNAPSHOT] Recorded ${preDispatchMessageIds.size} outgoing message ID(s) before dispatch.`);
+            } catch (err) {
+                Logger.warn(`[CHAT SNAPSHOT] Could not record pre-dispatch outgoing messages: ${err.message}`);
+            }
+
+            // Register before dispatch because WhatsApp Web can emit create/ACK
+            // events before sendMessage() resolves.
+            ackListener = (eventMessage, ack) => {
+                const eventMessageId = this.getSerializedMessageId(eventMessage);
+                if (!eventMessageId) return;
+
+                ackByMessageId.set(eventMessageId, ack);
+                if (messageId === eventMessageId) {
+                    currentAck = ack;
+                    ackReceived = true;
+                    Logger.info(`[ACK EVENT UPDATE] Message ACK changed to: ${ack} (${this.getAckDescription(ack)})`);
+                }
+            };
+
+            createdMessageListener = (createdMessage) => {
+                if (!this.isExpectedOutgoingMessage(createdMessage, [sendJid, numberId._serialized], message)) return;
+
+                const createdMessageId = this.getSerializedMessageId(createdMessage);
+                if (!messageId) {
+                    messageId = createdMessageId;
+                }
+                if (messageId === createdMessageId) {
+                    messageCreateCaptured = true;
+                    currentAck = createdMessage.ack !== undefined ? createdMessage.ack : (ackByMessageId.get(messageId) || 0);
+                    ackReceived = ackByMessageId.has(messageId);
+                    Logger.info(`[MESSAGE CREATE] Captured canonical outgoing message ID: ${messageId}`);
+                }
+            };
+
+            this.client.on('message_ack', ackListener);
+            this.client.on('message_create', createdMessageListener);
+
             // 4. Dispatch message using @c.us JID (required by whatsapp-web.js getChat() lookup)
             const sentMessage = await this.client.sendMessage(sendJid, message);
+            dispatched = true;
 
             Logger.info('==================================================');
             Logger.info('[DELIVERY DIAGNOSTICS] Initial response from client.sendMessage():');
@@ -499,35 +591,18 @@ class WhatsAppWebProvider {
             console.dir(sentMessage, { depth: null, colors: true });
             Logger.info('==================================================');
 
-            let messageId = null;
-            if (sentMessage) {
-                if (typeof sentMessage.id === 'string') {
-                    messageId = sentMessage.id;
-                } else if (sentMessage.id && typeof sentMessage.id._serialized === 'string') {
-                    messageId = sentMessage.id._serialized;
-                } else if (sentMessage.id && typeof sentMessage.id.id === 'string') {
-                    messageId = sentMessage.id.id;
-                } else if (sentMessage._serialized) {
-                    messageId = sentMessage._serialized;
-                } else {
-                    messageId = `msg_gen_${Date.now()}`;
-                }
+            // The documented return value is a Message. Some WhatsApp Web
+            // runtimes resolve undefined after dispatch; message_create above
+            // is then the only safe source for a canonical ID.
+            const returnedMessageId = this.getSerializedMessageId(sentMessage);
+            if (returnedMessageId) {
+                messageId = returnedMessageId;
+                currentAck = sentMessage.ack !== undefined ? sentMessage.ack : (ackByMessageId.get(messageId) || 0);
+                ackReceived = ackByMessageId.has(messageId);
+                Logger.info(`[SEND RESULT] Canonical outgoing message ID: ${messageId}`);
             }
 
-            let currentAck = (sentMessage && sentMessage.ack !== undefined) ? sentMessage.ack : 0;
             const timestamp = new Date().toISOString();
-
-            // 5. Register real-time ACK event listener
-            const ackListener = (msg, ack) => {
-                const eventMsgId = msg && msg.id ? (msg.id._serialized || msg.id.id || msg.id) : null;
-                if (eventMsgId && messageId) {
-                    if (eventMsgId === messageId || String(eventMsgId).includes(String(messageId)) || String(messageId).includes(String(eventMsgId))) {
-                        currentAck = ack;
-                        Logger.info(`[ACK EVENT UPDATE] Message ACK changed to: ${ack} (${this.getAckDescription(ack)})`);
-                    }
-                }
-            };
-            this.client.on('message_ack', ackListener);
 
             Logger.info('==================================================');
             Logger.info(`[DELIVERY MONITOR] Monitoring ACK status for up to 30 seconds (Target ACK >= 1)...`);
@@ -552,22 +627,34 @@ class WhatsAppWebProvider {
                     }
                 } catch (e) {}
 
-                // Active in-page memory check via Puppeteer to ensure ACK state is accurately fetched
+                // Use the public client API only after a canonical ID is known.
+                // A null or guessed ID is never delivery evidence.
                 try {
-                    if (this.client && this.client.pupPage && isBrowserAlive) {
-                        const browserAck = await this.client.pupPage.evaluate(async (msgIdStr) => {
-                            try {
-                                const Msg = window.require('WAWebCollections').Msg;
-                                const msgObj = Msg.get(msgIdStr) || (await Msg.getMessagesById([msgIdStr]))?.messages?.[0];
-                                return msgObj ? msgObj.ack : null;
-                            } catch (e) {
-                                return null;
-                            }
-                        }, messageId);
+                    if (!messageId && targetChat) {
+                        const postDispatchMessages = await targetChat.fetchMessages({ limit: 50, fromMe: true });
+                        const candidates = postDispatchMessages.filter((candidate) => {
+                            const candidateId = this.getSerializedMessageId(candidate);
+                            if (!candidateId || preDispatchMessageIds.has(candidateId)) return false;
+                            if (!this.isExpectedOutgoingMessage(candidate, [sendJid, numberId._serialized], message)) return false;
+                            return Number(candidate.timestamp || 0) >= dispatchStartedAt - 1;
+                        });
 
-                        if (browserAck !== null && browserAck !== undefined && browserAck > currentAck) {
-                            currentAck = browserAck;
-                            Logger.info(`[BROWSER MEMORY ACK CHECK] Query returned ACK: ${browserAck} (${this.getAckDescription(browserAck)})`);
+                        if (candidates.length === 1) {
+                            const candidate = candidates[0];
+                            messageId = this.getSerializedMessageId(candidate);
+                            currentAck = candidate.ack !== undefined ? candidate.ack : 0;
+                            ackReceived = ackByMessageId.has(messageId);
+                            Logger.info(`[CHAT HISTORY] Captured canonical outgoing message ID: ${messageId}`);
+                        } else if (candidates.length > 1) {
+                            Logger.warn(`[CHAT HISTORY] Found ${candidates.length} matching new outgoing messages; refusing ambiguous ID correlation.`);
+                        }
+                    }
+
+                    if (messageId && this.client && isBrowserAlive) {
+                        const trackedMessage = await this.client.getMessageById(messageId);
+                        if (trackedMessage && trackedMessage.ack !== undefined && trackedMessage.ack > currentAck) {
+                            currentAck = trackedMessage.ack;
+                            Logger.info(`[MESSAGE LOOKUP ACK CHECK] Query returned ACK: ${currentAck} (${this.getAckDescription(currentAck)})`);
                         }
                     }
                 } catch (e) {}
@@ -582,18 +669,21 @@ class WhatsAppWebProvider {
                 }
             }
 
-            this.client.off('message_ack', ackListener);
-
             if (currentAck < 1) {
-                const timeoutMsg = `Delivery timeout: ACK remained at ${currentAck} (0 = PENDING/CLOCK) after 30 seconds. Message was created locally but not acknowledged by WhatsApp servers.`;
+                const timeoutMsg = messageId
+                    ? `Dispatch completed for ${messageId}, but ACK remained at ${currentAck} after 30 seconds. Automatic retry is blocked to prevent a duplicate message.`
+                    : 'sendMessage() resolved after dispatch, but no canonical message ID or ACK could be correlated within 30 seconds. Automatic retry is blocked to prevent a duplicate message.';
                 Logger.warn(`⚠️ ${timeoutMsg}`);
                 return {
                     success: false,
+                    outcome: 'CONFIRMATION_PENDING',
                     messageId: messageId,
                     ack: currentAck,
                     ackDescription: this.getAckDescription(currentAck),
+                    messageCreateCaptured: messageCreateCaptured,
+                    ackReceived: ackReceived,
                     targetJid: sendJid,
-                    resolvedJid: numberId._serialized,
+                    resolvedJid: numberId ? numberId._serialized : null,
                     timestamp: timestamp,
                     error: timeoutMsg,
                     rawResponse: sentMessage
@@ -602,22 +692,64 @@ class WhatsAppWebProvider {
 
             return {
                 success: true,
+                outcome: 'CONFIRMED',
                 messageId: messageId,
                 ack: currentAck,
                 ackDescription: this.getAckDescription(currentAck),
+                messageCreateCaptured: messageCreateCaptured,
+                ackReceived: ackReceived,
                 targetJid: sendJid,
-                resolvedJid: numberId._serialized,
+                resolvedJid: numberId ? numberId._serialized : null,
                 timestamp: timestamp,
                 rawResponse: sentMessage
             };
         } catch (err) {
             Logger.error(`✗ Failed to send WhatsApp message to ${sendJid}:`, err.message);
+
+            // Check for detached-frame, browser, page, or Puppeteer errors
+            const isBrowserError = err.message && (
+                err.message.includes('detached Frame') ||
+                err.message.includes('Protocol error') ||
+                err.message.includes('Session closed') ||
+                err.message.includes('Target closed') ||
+                err.message.includes('browser has disconnected') ||
+                err.message.includes('Execution context was destroyed')
+            );
+
+            if (isBrowserError) {
+                this.connectedState = false;
+                Logger.error('[BROWSER ERROR DETECTED] Attempting to safely clean up broken WhatsApp client session...');
+                if (this.client) {
+                    try {
+                        await this.client.destroy();
+                        Logger.info('[BROWSER ERROR RECOVERY] Broken client destroyed successfully.');
+                    } catch (destroyErr) {
+                        Logger.warn('[BROWSER ERROR RECOVERY] Notice: Error while destroying broken client:', destroyErr.message);
+                    }
+                }
+            }
+
             return {
                 success: false,
-                messageId: null,
+                outcome: dispatched ? 'CONFIRMATION_PENDING' : 'DEFINITE_FAILURE',
+                messageId: messageId,
+                ack: currentAck,
+                messageCreateCaptured: messageCreateCaptured,
+                ackReceived: ackReceived,
                 timestamp: new Date().toISOString(),
-                error: err.message
+                error: dispatched
+                    ? `Dispatch may have occurred before provider error: ${err.message}. Automatic retry is blocked to prevent a duplicate message.`
+                    : err.message
             };
+        } finally {
+            if (this.client) {
+                if (ackListener) {
+                    try { this.client.off('message_ack', ackListener); } catch (e) {}
+                }
+                if (createdMessageListener) {
+                    try { this.client.off('message_create', createdMessageListener); } catch (e) {}
+                }
+            }
         }
     }
 }
