@@ -430,6 +430,12 @@ const AttendanceService = (() => {
     const applyConditionalFormatting = (sheet, numRows, daysInMonth) => {
         try {
             const dayRange = sheet.getRange(3, 7, numRows, daysInMonth);
+            
+            // Format font size and alignment for daily attendance cells
+            dayRange.setFontSize(8)
+                    .setHorizontalAlignment('center')
+                    .setVerticalAlignment('middle');
+
             const rules = [];
 
             // Rule 1: 'P' -> Soft Green
@@ -445,6 +451,15 @@ const AttendanceService = (() => {
                 .whenTextEqualTo('A')
                 .setBackground('#f8d7da')
                 .setFontColor('#721c24')
+                .setRanges([dayRange])
+                .build());
+
+            // Rule 3: 'CLOSE' -> Soft Silver/Gray
+            rules.push(SpreadsheetApp.newConditionalFormatRule()
+                .whenTextEqualTo('CLOSE')
+                .setBackground('#e2e3e5')
+                .setFontColor('#383d41')
+                .setFontWeight('bold')
                 .setRanges([dayRange])
                 .build());
 
