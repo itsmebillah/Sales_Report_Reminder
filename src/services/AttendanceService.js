@@ -112,6 +112,16 @@ const AttendanceService = (() => {
                 let srWorkingDaysEvaluated = 0;
 
                 const srSalesByDay = monthlySalesMap[srId] || {};
+                const isClosed = !!srSalesByDay.isClosed;
+
+                // Find the last day where this SR has sales > 0
+                let lastSalesDay = 0;
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const salesVal = srSalesByDay[d] !== undefined ? srSalesByDay[d] : 0;
+                    if (salesVal > 0) {
+                        lastSalesDay = d;
+                    }
+                }
 
                 // Days 1..daysInMonth (Dynamic Month Days)
                 for (let d = 1; d <= daysInMonth; d++) {
@@ -120,7 +130,9 @@ const AttendanceService = (() => {
                     const isWeeklyHoliday = isHoliday(dateObj, tz);
 
                     if (d <= attendanceEndDay) {
-                        if (salesVal > 0) {
+                        if (isClosed && d > lastSalesDay) {
+                            row.push('CLOSE');
+                        } else if (salesVal > 0) {
                             row.push('P');
                             srPresentCount++;
                             srWorkingDaysEvaluated++;
@@ -596,6 +608,12 @@ const AttendanceService = (() => {
                     if (!map[srId]) {
                         map[srId] = {};
                     }
+
+                    const srStatusRaw = String(row[10] !== undefined ? row[10] : '').trim();
+                    const srStatusNorm = srStatusRaw.toUpperCase();
+                    const isSr = (designation === 'SR');
+                    const isClosed = isSr && (srStatusNorm === 'CLOSE' || srStatusRaw === '1');
+                    map[srId].isClosed = !!(map[srId].isClosed || isClosed);
 
                     for (let d = 1; d <= 31; d++) {
                         const colIdx = dayColMap[d] !== undefined ? dayColMap[d] : (15 + d);
