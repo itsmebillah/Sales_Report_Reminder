@@ -219,6 +219,9 @@ const AttendanceService = (() => {
                     resetRange.clearContent();
                     resetRange.setBackground('#ffffff');                             // Reset to white
                     resetRange.setBorder(false, false, false, false, false, false);  // Clear borders
+                    resetRange.setFontColor(null);
+                    resetRange.setFontWeight(null);
+                    resetRange.setFontSize(null);
                 }
 
                 sheet.getRange(3, 1, finalRows.length, totalCols).setValues(finalRows);
