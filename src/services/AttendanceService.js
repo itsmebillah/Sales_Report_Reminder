@@ -241,7 +241,7 @@ const AttendanceService = (() => {
                 applyFridayBackgrounds(sheet, finalRows.length, weekdays, daysInMonth);
 
                 // Apply Conditional Formatting for P (Green) & A (Red)
-                applyConditionalFormatting(sheet, finalRows.length, daysInMonth);
+                applyConditionalFormatting(sheet, finalRows.length, daysInMonth, finalRows);
 
                 // ── TSO ALTERNATING ROW BACKGROUND (contiguous-run batch) ────────────────
                 // Alternates #FFFFFF / #F7F7F7 on each TSO group change.
@@ -427,14 +427,35 @@ const AttendanceService = (() => {
     /**
      * Applies conditional formatting rules for P (Green) and A (Red).
      */
-    const applyConditionalFormatting = (sheet, numRows, daysInMonth) => {
+    const applyConditionalFormatting = (sheet, numRows, daysInMonth, finalRows) => {
         try {
             const dayRange = sheet.getRange(3, 7, numRows, daysInMonth);
             
-            // Format font size and alignment for daily attendance cells
-            dayRange.setFontSize(8)
-                    .setHorizontalAlignment('center')
+            // 1. Center align all daily attendance cells
+            dayRange.setHorizontalAlignment('center')
                     .setVerticalAlignment('middle');
+
+            // 2. Set CLOSE cells font size to 6px and bold, normal cells to 10px and normal weight
+            const sizes = [];
+            const weights = [];
+            for (let r = 0; r < numRows; r++) {
+                const sizeRow = [];
+                const weightRow = [];
+                for (let c = 0; c < daysInMonth; c++) {
+                    const val = String(finalRows[r][6 + c] || '');
+                    if (val === 'CLOSE') {
+                        sizeRow.push(6);
+                        weightRow.push('bold');
+                    } else {
+                        sizeRow.push(10);
+                        weightRow.push('normal');
+                    }
+                }
+                sizes.push(sizeRow);
+                weights.push(weightRow);
+            }
+            dayRange.setFontSizes(sizes);
+            dayRange.setFontWeights(weights);
 
             const rules = [];
 
@@ -459,7 +480,7 @@ const AttendanceService = (() => {
                 .whenTextEqualTo('CLOSE')
                 .setBackground('#e2e3e5')
                 .setFontColor('#383d41')
-                .setFontWeight('bold')
+                .setBold(true)
                 .setRanges([dayRange])
                 .build());
 
