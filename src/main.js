@@ -55,6 +55,13 @@ function syncAttendanceNow() {
 }
 
 /**
+ * Trigger entry point for background attendance synchronization.
+ */
+function syncAttendance() {
+    return AttendanceService.syncAttendance();
+}
+
+/**
  * Opens a print-only, read-only view of the current Pending_TSO report.
  */
 function printPendingTsoReport() {
