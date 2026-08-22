@@ -23,11 +23,14 @@ const ConfigService = require('./config/ConfigService');
 const GoogleSheetService = require('./services/GoogleSheetService');
 const WhatsAppWebProvider = require('./providers/WhatsAppWebProvider');
 const Logger = require('./utils/Logger');
+const AutoShutdownController = require('./shutdown/AutoShutdownController');
+const executeWindowsShutdown = require('./shutdown/WindowsShutdownExecutor');
 
 let isKeepAliveActive = true;
 let todayDateStr = new Date().toISOString().split('T')[0];
 let messagesSentToday = 0;
 let messagesFailedToday = 0;
+let isSendingMessage = false;
 
 async function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -44,6 +47,11 @@ async function main() {
     const infraConfig = ConfigService.loadInfraConfig();
     const sheetService = new GoogleSheetService();
     const whatsappProvider = new WhatsAppWebProvider();
+    const autoShutdownController = new AutoShutdownController({
+        sheetService,
+        logger: Logger,
+        shutdownExecutor: executeWindowsShutdown
+    });
 
     // Setup graceful shutdown handlers
     const shutdown = async (signal) => {
@@ -213,6 +221,17 @@ async function main() {
                     messagesFailedToday = 0;
                 }
 
+                // Persistent auto-shutdown state is checked independently of
+                // whether the queue happens to be empty in this polling cycle.
+                const shutdownResult = await autoShutdownController.tick(runtimeConfig, {
+                    queueSheetName,
+                    senderBusy: isSendingMessage
+                });
+                if (shutdownResult.action === 'shutdown-initiated') {
+                    await sleep(pollIntervalMs);
+                    continue;
+                }
+
                 // ── GATE 1: SYSTEM_STATUS == STOP ──
                 if (systemStatus === 'STOP') {
                     Logger.info(`[SYSTEM_STATUS: STOP] Worker sleeping for ${runtimeConfig.pollInterval}s...`);
@@ -280,10 +299,16 @@ async function main() {
                         });
 
                         // Send WhatsApp message (blocks for up to 30s while ACK == 0)
-                        const sendResult = await whatsappProvider.send({
-                            recipientPhone: queueRecord.recipientPhone,
-                            message: queueRecord.message
-                        });
+                        let sendResult;
+                        isSendingMessage = true;
+                        try {
+                            sendResult = await whatsappProvider.send({
+                                recipientPhone: queueRecord.recipientPhone,
+                                message: queueRecord.message
+                            });
+                        } finally {
+                            isSendingMessage = false;
+                        }
 
                         const nowIso = new Date().toISOString();
 

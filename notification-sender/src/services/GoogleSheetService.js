@@ -133,8 +133,10 @@ class GoogleSheetService {
                     requestBody: { values: newRows }
                 });
             }
+            return true;
         } catch (err) {
             console.warn('[WARN] Could not update Settings tab:', err.message);
+            return false;
         }
     }
 
@@ -181,9 +183,44 @@ class GoogleSheetService {
         }
     }
 
+    /**
+     * Reads the complete queue state needed for run-scoped completion checks.
+     * This does not claim or mutate any queue record.
+     */
+    async readQueueRecords(queueSheetName = 'Message_Queue') {
+        if (!this.isConnected || !this.sheets) {
+            throw new Error('GoogleSheetService is not connected. Call connect() first.');
+        }
+
+        const response = await this.sheets.spreadsheets.values.get({
+            spreadsheetId: this.spreadsheetId,
+            range: `${queueSheetName}!A1:Z`
+        });
+        const rows = response.data.values || [];
+        if (rows.length <= 1) return [];
+
+        const headerMap = {};
+        (rows[0] || []).forEach((name, index) => {
+            if (name) headerMap[String(name).trim()] = index;
+        });
+        const queueIdCol = headerMap['Queue_ID'] !== undefined ? headerMap['Queue_ID'] : 0;
+        const statusCol = headerMap['Status'] !== undefined ? headerMap['Status'] : 12;
+        const retryCol = headerMap['Retry_Count'] !== undefined ? headerMap['Retry_Count'] : 13;
+
+        return rows.slice(1).map((row, index) => {
+            const retryCount = parseInt(row[retryCol], 10);
+            return {
+                queueId: String(row[queueIdCol] || '').trim(),
+                status: String(row[statusCol] || '').trim().toUpperCase(),
+                retryCount: Number.isNaN(retryCount) ? 0 : retryCount,
+                rowIndex: index + 2
+            };
+        }).filter(record => record.queueId);
+    }
+
 
     /**
-     * Reads queue sheet and filters for Status === PENDING in memory.
+     * Reads queue sheet and filters for claimable PENDING/RETRY records in memory.
      * @param {string} queueSheetName Name of queue sheet tab (e.g. 'Message_Queue')
      * @returns {Promise<Array<Object>>} List of normalized queue objects.
      */
@@ -225,7 +262,7 @@ class GoogleSheetService {
             const row = rows[i];
             const status = String(row[idxStatus] || '').trim().toUpperCase();
 
-            if (status === 'PENDING') {
+            if (status === 'PENDING' || status === 'RETRY') {
                 const retryVal = parseInt(row[idxRetryCount], 10);
                 pendingRecords.push({
                     queueId: String(row[idxQueueId] || '').trim(),
@@ -234,7 +271,7 @@ class GoogleSheetService {
                     recipientPhone: String(row[idxRecipientPhone] || '').trim(),
                     message: String(row[idxMessageBody] || '').trim(),
                     retryCount: Number.isNaN(retryVal) ? 0 : retryVal,
-                    status: 'PENDING',
+                    status: status,
                     rowIndex: i + 1
                 });
             }
@@ -426,8 +463,8 @@ class GoogleSheetService {
     }
 
     /**
-     * Claims a pending queue record atomically before dispatching.
-     * Ensures headers exist, verifies Status is PENDING, updates Status to PROCESSING,
+     * Claims a pending/retry queue record atomically before dispatching.
+     * Ensures headers exist, verifies Status is PENDING or RETRY, updates Status to PROCESSING,
      * writes Processing_Started_At and Worker_ID, and verifies claim success.
      * @param {string} queueSheetName
      * @param {number} rowIndex
@@ -456,10 +493,10 @@ class GoogleSheetService {
             ? String(statusResp.data.values[0][0]).trim().toUpperCase()
             : '';
 
-        if (currentStatus !== 'PENDING') {
+        if (currentStatus !== 'PENDING' && currentStatus !== 'RETRY') {
             return {
                 success: false,
-                reason: `Record at row ${rowIndex} has status "${currentStatus}" (expected PENDING). Already claimed or processed by another worker.`
+                reason: `Record at row ${rowIndex} has status "${currentStatus}" (expected PENDING or RETRY). Already claimed or processed by another worker.`
             };
         }
 

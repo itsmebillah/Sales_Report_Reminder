@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    body {font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 15px; color: #333; background-color: #fcfcfc;}
+    .picker-container {display: flex; flex-direction: column; align-items: center; gap: 15px;}
+    .selectors-row {display: flex; gap: 8px; align-items: center; margin-top: 10px;}
+    select {padding: 8px 10px; font-size: 16px; font-weight: 500; border-radius: 6px; border: 1px solid #c4c7c5; background-color: white; cursor: pointer; color: #1f1f1f; outline: none;}
+    select:focus {border: 2px solid #0b57d0; padding: 7px 9px;}
+    .time-colon {font-size: 18px; font-weight: bold; color: #444746;}
+    .btn-container {display: flex; gap: 8px; width: 100%; justify-content: center; margin-top: 15px;}
+    button {padding: 8px 16px; font-size: 14px; font-weight: 600; border-radius: 100px; border: none; cursor: pointer; transition: background-color 0.2s, box-shadow 0.2s;}
+    .btn-save {background-color: #0b57d0; color: white;}
+    .btn-save:hover {background-color: #0842a0; box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);}
+    .btn-cancel {background-color: #f1f3f4; color: #1f1f1f; border: 1px solid #c4c7c5;}
+    .btn-cancel:hover {background-color: #e3e3e3;}
+    .btn-clear {background-color: #f8d7da; color: #b02a37; border: 1px solid #f5c2c7;}
+    .btn-clear:hover {background-color: #f1aeb5;}
+    .current-time-label {font-size: 13px; font-weight: 500; color: #444746; text-align: center; background-color: #f1f3f4; padding: 6px 12px; border-radius: 8px; width: 90%;}
+  </style>
+</head>
+<body>
+  <div class="picker-container">
+    <div class="current-time-label" id="currentTimeLabel">Loading current scheduler time...</div>
+    <div class="selectors-row">
+      <select id="hourSelect"><option value="">Hour</option><option value="1">01</option><option value="2">02</option><option value="3">03</option><option value="4">04</option><option value="5">05</option><option value="6">06</option><option value="7">07</option><option value="8">08</option><option value="9">09</option><option value="10">10</option><option value="11">11</option><option value="12">12</option></select>
+      <span class="time-colon">:</span>
+      <select id="minuteSelect"><option value="">Min</option><option value="00">00</option><option value="05">05</option><option value="10">10</option><option value="15">15</option><option value="20">20</option><option value="25">25</option><option value="30">30</option><option value="35">35</option><option value="40">40</option><option value="45">45</option><option value="50">50</option><option value="55">55</option></select>
+      <select id="ampmSelect"><option value="AM">AM</option><option value="PM">PM</option></select>
+    </div>
+    <div class="btn-container">
+      <button class="btn-clear" onclick="clearTime()">Clear</button>
+      <button class="btn-cancel" onclick="google.script.host.close()">Cancel</button>
+      <button class="btn-save" onclick="saveTime()">Save</button>
+    </div>
+  </div>
+  <script>
+    window.onload = function() {
+      google.script.run
+        .withSuccessHandler(function(timeStr) {
+          const label = document.getElementById('currentTimeLabel');
+          if (timeStr) { label.textContent = "Current selected time: " + timeStr; parseAndSetTime(timeStr); } else { label.textContent = "No time currently configured (default: 09:00 AM)"; }
+        })
+        .withFailureHandler(function(err) { document.getElementById('currentTimeLabel').textContent = "Error loading current time: " + err.message; })
+        .getCurrentSchedulerTime();
+    };
+    function parseAndSetTime(timeStr) {
+      let cleanTime = timeStr.trim();
+      if (cleanTime.includes('1899') || cleanTime.includes('GMT')) { const parts = cleanTime.split(' '); const timePart = parts.find(p => p.includes(':')); if (timePart) { cleanTime = timePart.substring(0,5); } }
+      const isPm = cleanTime.toUpperCase().includes('PM');
+      const isAm = cleanTime.toUpperCase().includes('AM');
+      let timeOnly = cleanTime.replace(/(AM|PM)/gi, '').trim();
+      const timeParts = timeOnly.split(':');
+      if (timeParts.length >= 2) {
+        let hour = parseInt(timeParts[0],10);
+        let minVal = parseInt(timeParts[1],10);
+        minVal = Math.round(minVal/5)*5; if (minVal===60) minVal=55;
+        const minStr = String(minVal).padStart(2,'0');
+        let ampm='AM';
+        if (isPm) ampm='PM'; else if (isAm) ampm='AM'; else { if (hour>=12){ ampm='PM'; if (hour>12) hour-=12; } else { ampm='AM'; if (hour===0) hour=12; } }
+        document.getElementById('hourSelect').value = String(hour);
+        document.getElementById('minuteSelect').value = minStr;
+        document.getElementById('ampmSelect').value = ampm;
+      }
+    }
+    function clearTime(){ document.getElementById('hourSelect').value=''; document.getElementById('minuteSelect').value=''; document.getElementById('ampmSelect').value='AM'; }
+    function saveTime(){ const hour=document.getElementById('hourSelect').value; const minute=document.getElementById('minuteSelect').value; const ampm=document.getElementById('ampmSelect').value; if(!hour||!minute){ google.script.run.withSuccessHandler(()=>{google.script.host.close();}).withFailureHandler(err=>{alert('Error saving: '+err.message);}).saveSchedulerTime(''); return; } let h24=parseInt(hour,10); if(ampm==='PM' && h24<12){ h24+=12; } else if(ampm==='AM' && h24===12){ h24=0; } const formatted24h = String(h24).padStart(2,'0')+":"+minute; google.script.run.withSuccessHandler(()=>{google.script.host.close();}).withFailureHandler(err=>{alert('Error saving: '+err.message);}).saveSchedulerTime(formatted24h); }
+  </script>
+</body>
+</html>

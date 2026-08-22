@@ -33,7 +33,8 @@ const DashboardService = (() => {
      * Refreshes the Dashboard sheet automatically after execution.
      * @param {Object} summary Metrics and execution summary.
      */
-    const refreshDashboard = (summary) => {
+    const refreshDashboard = (summaryObj) => {
+        const summary = summaryObj || {};
         try {
             const ss = SpreadsheetApp.getActiveSpreadsheet();
             if (!ss) return;
@@ -123,7 +124,19 @@ const DashboardService = (() => {
                 }
             }
 
-            const schedulerStatus = `ACTIVE (Daily at ${schedulerTime})`;
+            // Convert 24-hour format string (e.g. "16:00") to 12-hour format string (e.g. "04:00 PM") for dashboard display
+            let displayTime = schedulerTime;
+            const timeParts = schedulerTime.split(':');
+            if (timeParts.length === 2) {
+                let h = parseInt(timeParts[0], 10);
+                const m = timeParts[1];
+                const ampm = h >= 12 ? 'PM' : 'AM';
+                let displayH = h % 12;
+                if (displayH === 0) displayH = 12;
+                displayTime = `${String(displayH).padStart(2, '0')}:${m} ${ampm}`;
+            }
+
+            const schedulerStatus = `ACTIVE (Daily at ${displayTime})`;
 
             // Estimated Next Run (Tomorrow at scheduler hour)
             const hour = parseInt(schedulerTime.split(':')[0], 10) || 9;

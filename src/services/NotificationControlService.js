@@ -13,6 +13,17 @@ const NotificationControlService = (() => {
     // ─── Settings schema with defaults ───────────────────────────────────────
 
     const DEFAULT_SETTINGS = [
+        { key: 'AUTO_SHUTDOWN_ENABLED', value: 'FALSE', description: 'Enable/disable auto PC shutdown after reminders' },
+        { key: 'AUTO_SHUTDOWN_DELAY_MINUTES', value: '12', description: 'Delay in minutes before shutdown after final message' },
+        { key: 'AUTO_SHUTDOWN_RUN_ACTIVE', value: 'FALSE', description: 'TRUE only while a scheduled reminder run is generating or sending' },
+        { key: 'AUTO_SHUTDOWN_RUN_ID', value: '', description: 'Unique ID of the shutdown-eligible scheduled reminder run' },
+        { key: 'AUTO_SHUTDOWN_RUN_PHASE', value: 'IDLE', description: 'Persistent auto-shutdown controller phase' },
+        { key: 'AUTO_SHUTDOWN_RUN_QUEUE_IDS', value: '[]', description: 'Exact queue IDs belonging to the scheduled reminder run' },
+        { key: 'AUTO_SHUTDOWN_LAST_QUEUE_ID', value: '', description: 'Final queue ID of the scheduled reminder run' },
+        { key: 'AUTO_SHUTDOWN_FINAL_CHECK_AT', value: '', description: 'Time the final queue message was resolved' },
+        { key: 'AUTO_SHUTDOWN_PENDING_UNTIL', value: '', description: 'Cancellable shutdown countdown target timestamp' },
+        { key: 'AUTO_SHUTDOWN_RETRY_USED', value: 'FALSE', description: 'Whether the final-message shutdown retry was used' },
+        { key: 'AUTO_SHUTDOWN_CANCEL_REASON', value: '', description: 'Most recent auto-shutdown cancellation reason' },
         { key: 'SYSTEM_STATUS',         value: 'STOP',        description: 'Worker control gate: RUNNING or STOP' },
         { key: 'WHATSAPP_ENABLED',      value: 'TRUE',        description: 'Enable WhatsApp sending' },
         { key: 'POLL_INTERVAL',         value: '10',          description: 'Seconds between polling cycles' },
@@ -81,6 +92,28 @@ const NotificationControlService = (() => {
     };
 
     /**
+     * Upserts multiple Settings values after a single sheet read.
+     * Existing descriptions are preserved; new keys receive a blank description.
+     */
+    const updateSettings = (settingsMap) => {
+        const { map, sheet } = _readSettingsMap();
+        const newRows = [];
+
+        Object.keys(settingsMap).forEach(key => {
+            const value = settingsMap[key];
+            if (map[key]) {
+                sheet.getRange(map[key].row, 2).setValue(value);
+            } else {
+                newRows.push([key, value, '']);
+            }
+        });
+
+        if (newRows.length > 0) {
+            sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, 3).setValues(newRows);
+        }
+    };
+
+    /**
      * Reads a single setting value by key.
      * @param {string} key
      * @returns {string}
@@ -88,6 +121,22 @@ const NotificationControlService = (() => {
     const getSetting = (key) => {
         const { map } = _readSettingsMap();
         return map[key] ? String(map[key].value || '') : '';
+    };
+
+    /**
+     * Returns the queue IDs currently present in Message_Queue, in generation order.
+     */
+    const getQueueIds = () => {
+        const sheet = _getQueueSheet();
+        const data = sheet.getDataRange().getValues();
+        if (data.length <= 1) return [];
+
+        const queueIdCol = data[0].indexOf('Queue_ID');
+        if (queueIdCol === -1) throw new Error('Message_Queue is missing the Queue_ID column.');
+
+        return data.slice(1)
+            .map(row => String(row[queueIdCol] || '').trim())
+            .filter(Boolean);
     };
 
     // ─── Public API ───────────────────────────────────────────────────────────
@@ -232,7 +281,9 @@ const NotificationControlService = (() => {
     return {
         ensureDefaultSettings,
         updateSetting,
+        updateSettings,
         getSetting,
+        getQueueIds,
         startSender,
         stopSender,
         retryFailed,

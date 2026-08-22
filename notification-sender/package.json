@@ -4,7 +4,8 @@
   "description": "Standalone decoupled notification dispatcher service",
   "main": "src/app.js",
   "scripts": {
-    "start": "node src/app.js"
+    "start": "node src/app.js",
+    "test": "node --test"
   },
   "keywords": [
     "notification",

@@ -1,4 +1,6 @@
 **/*
 !appsscript.json
 !src/**/*.js
+!AutoShutdownSettings.html
+!SchedulerTimePicker.html
 !Code.js

@@ -31,6 +31,8 @@ function onOpen(e) {
           .addSeparator()
           .addItem('Sync Attendance Now', 'syncAttendanceNow')
           .addItem('Setup Environment Sheets & Triggers', 'runEnvironmentSetup')
+          .addItem('⚙️  Set Scheduler Time', 'openSchedulerTimePicker')
+          .addItem('⚙️ Auto PC Shutdown Settings', 'openAutoShutdownSettings')
           .addToUi();
     } catch (err) {
         console.log('onOpen UI initialization skipped: ' + err);
@@ -40,8 +42,31 @@ function onOpen(e) {
 /**
  * Time-driven or manual trigger entry point for daily reminders.
  */
-function processDailyReminders() {
-    ReminderService.processReminders();
+function processDailyReminders(e) {
+    let shutdownRun = { eligible: false, runId: '' };
+    try {
+        shutdownRun = AutoShutdownRunService.begin(
+            AutoShutdownRunService.isScheduledTriggerEvent(e)
+        );
+    } catch (stateErr) {
+        console.log('[AUTO-SHUTDOWN] Run tracking unavailable — shutdown skipped: ' + stateErr.message);
+    }
+
+    let result;
+    try {
+        result = ReminderService.processReminders();
+    } catch (err) {
+        try { AutoShutdownRunService.abort(shutdownRun, err.message); } catch (stateErr) {}
+        throw err;
+    }
+
+    try {
+        AutoShutdownRunService.completeGeneration(shutdownRun);
+    } catch (stateErr) {
+        console.log('[AUTO-SHUTDOWN] Run tracking failed — shutdown skipped: ' + stateErr.message);
+        try { AutoShutdownRunService.abort(shutdownRun, stateErr.message); } catch (abortErr) {}
+    }
+    return result;
 }
 
 /**
@@ -418,5 +443,113 @@ function copyData() {
   // Rebuild Attendance only after the copied Sales data is committed.
   SpreadsheetApp.flush();
   syncAttendanceNow();
+}
+
+/**
+ * Opens the HTML modal dialog for Scheduler Time Picker.
+ */
+function openSchedulerTimePicker() {
+    try {
+        const htmlOutput = HtmlService.createHtmlOutputFromFile('SchedulerTimePicker')
+            .setWidth(320)
+            .setHeight(180)
+            .setTitle('Set Scheduler Time');
+        SpreadsheetApp.getUi().showModalDialog(htmlOutput, 'Set Scheduler Time');
+    } catch (err) {
+        SpreadsheetApp.getUi().alert('Error opening time picker: ' + err.message);
+    }
+}
+
+/**
+ * Returns the current Scheduler_Time setting value as a string.
+ */
+function getCurrentSchedulerTime() {
+    try {
+        const config = ConfigLoader.load();
+        const rawTime = config['Scheduler_Time'];
+        if (rawTime instanceof Date) {
+            const tz = config['Timezone'] || 'Asia/Dhaka';
+            return Utilities.formatDate(rawTime, tz, "HH:mm");
+        }
+        return String(rawTime || '').trim();
+    } catch (err) {
+        return '';
+    }
+}
+
+/**
+ * Saves the selected time to Settings → Scheduler_Time, forces Plain Text formatting on the cell,
+ * and re-installs the project Daily execution trigger.
+ * @param {string} newTime 24-hour formatted string "HH:mm" or empty string to clear.
+ */
+function saveSchedulerTime(newTime) {
+    try {
+        const ss = SpreadsheetApp.getActiveSpreadsheet();
+        const sheet = ss.getSheetByName("Settings");
+        if (!sheet) throw new Error("Settings sheet is missing.");
+
+        const data = sheet.getDataRange().getValues();
+        let rowIndex = -1;
+
+        // Find the row index of Scheduler_Time key
+        for (let i = 0; i < data.length; i++) {
+            if (data[i][0] && data[i][0].trim() === 'Scheduler_Time') {
+                rowIndex = i + 1; // 1-indexed row number
+                break;
+            }
+        }
+
+        if (rowIndex === -1) {
+            throw new Error("Scheduler_Time key not found in Settings.");
+        }
+
+        const cell = sheet.getRange(rowIndex, 2);
+
+        if (newTime === "") {
+            // Clear current setting
+            cell.setValue("");
+        } else {
+            // Set 24h formatted string and force Plain Text formatting to bypass Date parsing side effects
+            cell.setValue(newTime);
+            cell.setNumberFormat('@');
+        }
+
+        // Force spreadsheet flush to make sure changes are written before trigger reload
+        SpreadsheetApp.flush();
+
+        // Reload trigger configurations in Apps Script
+        EnvironmentSetup.installTrigger();
+
+        // Re-calculate and update Dashboard metrics to reflect the new scheduler next run time
+        DashboardService.refreshDashboard();
+
+        SpreadsheetApp.getUi().alert("Scheduler time updated successfully! Next run time has been adjusted.");
+    } catch (err) {
+        SpreadsheetApp.getUi().alert("Failed to save scheduler time: " + err.message);
+        throw err;
+    }
+}
+
+/** Opens Auto PC Shutdown Settings dialog */
+function openAutoShutdownSettings() {
+  const html = HtmlService.createHtmlOutputFromFile('AutoShutdownSettings')
+      .setWidth(340)
+      .setHeight(250);
+  SpreadsheetApp.getUi().showModalDialog(html, 'Auto PC Shutdown Settings');
+}
+
+function getAutoShutdownEnabled() {
+  const val = NotificationControlService.getSetting('AUTO_SHUTDOWN_ENABLED');
+  return String(val).toUpperCase() === 'TRUE';
+}
+
+function saveAutoShutdownEnabled(enabled) {
+  const val = enabled ? 'TRUE' : 'FALSE';
+  NotificationControlService.updateSetting('AUTO_SHUTDOWN_ENABLED', val, 'Enable/disable auto PC shutdown after reminders');
+}
+
+function getAutoShutdownDelay() {
+  const val = NotificationControlService.getSetting('AUTO_SHUTDOWN_DELAY_MINUTES');
+  return Number(val) || 12;
 }
 
