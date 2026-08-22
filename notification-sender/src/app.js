@@ -306,22 +306,24 @@ async function main() {
                             });
 
                         } else if (sendResult.outcome === 'CONFIRMATION_PENDING') {
-                            // Dispatch may already have reached WhatsApp, but the worker
-                            // cannot prove it with a canonical ID and ACK. Never requeue
-                            // this state automatically: doing so could duplicate a message.
+                            // Dispatch was completed, but no ACK was received in 30s.
+                            // Mark as SENT to prevent duplicate retries, preserving the warning log.
                             const diagnostic = sendResult.error || 'Dispatch was attempted, but delivery confirmation could not be correlated safely. Automatic retry is blocked to prevent a duplicate message.';
                             await sheetService.updateQueueResult(queueSheetName, queueRecord.rowIndex, {
-                                status: 'CONFIRMATION_PENDING',
-                                sentAt: '',
+                                status: 'SENT',
+                                sentAt: sendResult.timestamp || nowIso,
                                 messageId: sendResult.messageId || '',
-                                ack: sendResult.ack !== undefined ? sendResult.ack : '',
+                                ack: sendResult.ack !== undefined ? sendResult.ack : 0,
                                 errorMessage: diagnostic,
                                 retryCount: queueRecord.retryCount || 0
                             });
-                            Logger.warn(`âš ï¸ [CONFIRMATION_PENDING] Queue ID: ${queueRecord.queueId} | Row ${queueRecord.rowIndex} -> ${diagnostic}`);
+                            messagesSentToday++;
+                            Logger.warn(`⚠️ [SENT (CONFIRMATION_PENDING)] Queue ID: ${queueRecord.queueId} | Row ${queueRecord.rowIndex} | ACK: ${sendResult.ack !== undefined ? sendResult.ack : 0} -> ${diagnostic}`);
                             await sheetService.updateSettings({
                                 'Sender_Status': 'Running',
-                                'Last_Run_Time': nowIso
+                                'Last_Run_Time': nowIso,
+                                'Last_Message_Time': nowIso,
+                                'Messages_Sent_Today': String(messagesSentToday)
                             });
 
                         } else {
