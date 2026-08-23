@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 
 const projectRoot = path.resolve(__dirname, '..', '..');
 const read = relativePath => fs.readFileSync(path.join(projectRoot, relativePath), 'utf8');
@@ -31,10 +32,99 @@ test('legacy Settings lookups are isolated to verified migration/bootstrap paths
     const source = read('src/services/ConfigurationService.js');
     const legacyLookups = source.match(/getSheetByName\('Settings'\)/g) || [];
 
-    assert.equal(legacyLookups.length, 2);
+    assert.equal(legacyLookups.length, 3);
     assert.match(source, /ensureDashboardConfigurationArea\(getSheet\(true\), snapshot\.values, true\)/);
     assert.match(source, /if \(missing\.length \|\| mismatched\.length\)/);
     assert.match(source, /if \(deleteLegacy && legacy\) ss\.deleteSheet\(legacy\)/);
+    assert.match(read('src/config/setup.js'), /ConfigurationService\.removeLegacySettingsAfterMigration\(\)/);
+});
+
+function loadRemovalHarness({ dashboardRows, legacyRows }) {
+    let dashboardWriteCount = 0;
+    let deletedSheet = null;
+    const dashboardSheet = {
+        getLastRow: () => dashboardRows.length,
+        getRange: () => ({
+            getValues: () => dashboardRows,
+            setValue: () => { dashboardWriteCount++; },
+            setValues: () => { dashboardWriteCount++; },
+            clearContent: () => { dashboardWriteCount++; }
+        })
+    };
+    const legacySheet = { getDataRange: () => ({ getValues: () => legacyRows }) };
+    const spreadsheet = {
+        getSheetByName: name => name === 'Dashboard' ? dashboardSheet : (name === 'Settings' ? legacySheet : null),
+        deleteSheet: sheet => { deletedSheet = sheet; }
+    };
+    const context = {
+        SpreadsheetApp: { getActiveSpreadsheet: () => spreadsheet },
+        ConfigLoader: { invalidate: () => {} },
+        console: { log: () => {} }
+    };
+    vm.runInNewContext(
+        `${read('src/services/ConfigurationService.js')}\n;globalThis.__configurationService = ConfigurationService;`,
+        context
+    );
+    return {
+        service: context.__configurationService,
+        dashboardWriteCount: () => dashboardWriteCount,
+        deletedSheet: () => deletedSheet,
+        legacySheet
+    };
+}
+
+test('safe legacy removal preserves authoritative Dashboard SYSTEM_STATUS', () => {
+    const dashboardRows = [['Worker Gate', 'STOP', 'SYSTEM_STATUS', '', '', '']];
+    const harness = loadRemovalHarness({
+        dashboardRows,
+        legacyRows: [['Key', 'Value'], ['SYSTEM_STATUS', 'RUNNING']]
+    });
+
+    const result = harness.service.removeLegacySettingsAfterMigration();
+
+    assert.equal(dashboardRows[0][1], 'STOP');
+    assert.equal(harness.dashboardWriteCount(), 0);
+    assert.equal(harness.deletedSheet(), harness.legacySheet);
+    assert.equal(result.legacyRemoved, true);
+    assert.equal(result.verifiedKeys, 1);
+});
+
+test('legacy Sender_Status and Last_Run_Time differences do not block safe removal', () => {
+    const dashboardRows = [
+        ['Sender Runtime Status', 'Waiting', 'Sender_Status', '', '', ''],
+        ['Last Worker Heartbeat', '2026-08-23T09:30:00.000Z', 'Last_Run_Time', '', '', '']
+    ];
+    const harness = loadRemovalHarness({
+        dashboardRows,
+        legacyRows: [
+            ['Key', 'Value'],
+            ['Sender_Status', 'Running'],
+            ['Last_Run_Time', '2026-08-23T07:35:35.416Z']
+        ]
+    });
+
+    const result = harness.service.removeLegacySettingsAfterMigration();
+
+    assert.equal(dashboardRows[0][1], 'Waiting');
+    assert.equal(dashboardRows[1][1], '2026-08-23T09:30:00.000Z');
+    assert.equal(harness.dashboardWriteCount(), 0);
+    assert.equal(harness.deletedSheet(), harness.legacySheet);
+    assert.equal(result.legacyRemoved, true);
+    assert.equal(result.verifiedKeys, 2);
+});
+
+test('safe legacy removal aborts without deletion when a legacy key is missing from Dashboard', () => {
+    const harness = loadRemovalHarness({
+        dashboardRows: [['Worker Gate', 'STOP', 'SYSTEM_STATUS', '', '', '']],
+        legacyRows: [['Key', 'Value'], ['SYSTEM_STATUS', 'RUNNING'], ['Scheduler_Time', '17:30']]
+    });
+
+    assert.throws(
+        () => harness.service.removeLegacySettingsAfterMigration(),
+        /Missing Dashboard keys: Scheduler_Time/
+    );
+    assert.equal(harness.dashboardWriteCount(), 0);
+    assert.equal(harness.deletedSheet(), null);
 });
 
 test('Dashboard refresh preserves A:B and required production keys remain represented', () => {

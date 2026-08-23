@@ -238,11 +238,12 @@ function migrateSettingsToDashboard() {
 }
 
 /**
- * Final cutover step. Re-verifies every legacy value, then removes the old tab.
+ * Final cutover step. Verifies legacy keys exist in the authoritative Dashboard,
+ * then removes only the old tab without copying legacy values back.
  * Run only after the Dashboard-backed Apps Script and Node worker are live.
  */
 function removeLegacySettingsAfterMigration() {
-    return ConfigurationService.migrateFromLegacySettings(true);
+    return ConfigurationService.removeLegacySettingsAfterMigration();
 }
 
 /**

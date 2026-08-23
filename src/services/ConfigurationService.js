@@ -406,6 +406,34 @@ const ConfigurationService = (() => {
         return { migratedKeys: Object.keys(snapshot.values).length, missing, mismatched, legacyRemoved: Boolean(deleteLegacy && legacy), dashboardRows: result.rowCount };
     };
 
+    /**
+     * Removes the legacy Settings sheet after a read-only key-completeness check.
+     * Dashboard values are authoritative and are never compared with or replaced
+     * by legacy values during removal.
+     */
+    const removeLegacySettingsAfterMigration = () => {
+        const ss = SpreadsheetApp.getActiveSpreadsheet();
+        if (!ss) throw new Error('No active spreadsheet found.');
+
+        const legacy = ss.getSheetByName('Settings');
+        if (!legacy) return { verifiedKeys: 0, missing: [], legacyRemoved: false };
+
+        const snapshot = readLegacySettings(legacy);
+        const dashboardMap = readMap().map;
+        const requiredKeys = Object.keys(snapshot.values);
+        const missing = requiredKeys.filter(key =>
+            !Object.prototype.hasOwnProperty.call(dashboardMap, key)
+        );
+
+        if (missing.length) {
+            throw new Error('Legacy Settings removal verification failed. Missing Dashboard keys: ' + missing.join(', '));
+        }
+
+        ss.deleteSheet(legacy);
+        if (typeof ConfigLoader !== 'undefined' && ConfigLoader.invalidate) ConfigLoader.invalidate();
+        return { verifiedKeys: requiredKeys.length, missing, legacyRemoved: true };
+    };
+
     const ensureDefaults = () => {
         const before = Object.keys(readMap().map).length;
         if (before === 0) {
@@ -427,6 +455,7 @@ const ConfigurationService = (() => {
         updateSettings,
         ensureDefaults,
         ensureDashboardConfigurationArea,
-        migrateFromLegacySettings
+        migrateFromLegacySettings,
+        removeLegacySettingsAfterMigration
     };
 })();
