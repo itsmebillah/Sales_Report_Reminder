@@ -1,7 +1,7 @@
 /**
  * GoogleSheetService.js
  * @responsibility Production-ready Google Sheets Data Access Layer using Service Account authentication.
- * Handles reading the Settings tab and Message_Queue tab. Contains zero business or messaging logic.
+ * Handles Dashboard-backed configuration and Message_Queue data access.
  */
 
 const { google } = require('googleapis');
@@ -51,10 +51,10 @@ class GoogleSheetService {
     }
 
     /**
-     * Reads raw key-value pairs from the Settings tab in Google Sheets.
+     * Reads raw key-value pairs from both Dashboard configuration panels C:H.
      * @returns {Promise<Object>} Map of raw key-value pairs.
      */
-    async readSettingsSheet() {
+    async readConfiguration() {
         if (!this.isConnected || !this.sheets) {
             throw new Error('GoogleSheetService is not connected. Call connect() first.');
         }
@@ -62,28 +62,27 @@ class GoogleSheetService {
         try {
             const response = await this.sheets.spreadsheets.values.get({
                 spreadsheetId: this.spreadsheetId,
-                range: 'Settings!A1:B'
+                range: 'Dashboard!C1:H'
             });
 
             const rows = response.data.values || [];
             const settingsMap = {};
 
-            for (let i = 1; i < rows.length; i++) {
-                const key = String(rows[i][0] || '').trim();
-                const value = rows[i][1];
-                if (key) {
-                    settingsMap[key] = value;
-                }
+            for (let i = 0; i < rows.length; i++) {
+                const leftKey = String(rows[i][2] || '').trim();
+                const rightKey = String(rows[i][5] || '').trim();
+                if (leftKey) settingsMap[leftKey] = rows[i][1];
+                if (rightKey) settingsMap[rightKey] = rows[i][4];
             }
             return settingsMap;
         } catch (err) {
-            console.warn('[WARN] Could not read Settings tab from Google Sheets:', err.message);
+            console.warn('[WARN] Could not read Dashboard configuration:', err.message);
             return {};
         }
     }
 
     /**
-     * Updates key-value pairs in the Settings tab.
+     * Updates key-value pairs in either Dashboard panel while preserving key location.
      * Upserts keys — updates existing cells or appends new rows.
      * @param {Object} settingsMap Object mapping key -> value
      */
@@ -95,16 +94,21 @@ class GoogleSheetService {
         try {
             const resp = await this.sheets.spreadsheets.values.get({
                 spreadsheetId: this.spreadsheetId,
-                range: 'Settings!A1:B'
+                range: 'Dashboard!C1:H'
             });
 
             const rows = resp.data.values || [];
             const keyToRowMap = {};
-            for (let i = 1; i < rows.length; i++) {
-                const key = String(rows[i][0] || '').trim();
-                if (key) {
-                    keyToRowMap[key] = i + 1;
-                }
+            let lastConfigRow = 0;
+            for (let i = 0; i < rows.length; i++) {
+                const leftKey = String(rows[i][2] || '').trim();
+                const rightKey = String(rows[i][5] || '').trim();
+                if (leftKey) keyToRowMap[leftKey] = { row: i + 1, valueColumn: 'D' };
+                if (rightKey) keyToRowMap[rightKey] = { row: i + 1, valueColumn: 'G' };
+                if (leftKey || rightKey) lastConfigRow = i + 1;
+            }
+            if (lastConfigRow === 0) {
+                throw new Error('Dashboard configuration is missing. Run the verified Settings-to-Dashboard migration first.');
             }
 
             const updates = [];
@@ -112,12 +116,17 @@ class GoogleSheetService {
 
             for (const [key, value] of Object.entries(settingsMap)) {
                 if (keyToRowMap[key]) {
+                    const location = keyToRowMap[key];
                     updates.push({
-                        range: `Settings!B${keyToRowMap[key]}`,
+                        range: `Dashboard!${location.valueColumn}${location.row}`,
                         values: [[value !== undefined && value !== null ? String(value) : '']]
                     });
                 } else {
-                    newRows.push([key, value !== undefined && value !== null ? String(value) : '']);
+                    newRows.push([
+                        String(key).replace(/_/g, ' '),
+                        value !== undefined && value !== null ? String(value) : '',
+                        key
+                    ]);
                 }
             }
 
@@ -126,16 +135,15 @@ class GoogleSheetService {
             }
 
             if (newRows.length > 0) {
-                await this.sheets.spreadsheets.values.append({
-                    spreadsheetId: this.spreadsheetId,
-                    range: 'Settings!A1:B',
-                    valueInputOption: 'USER_ENTERED',
-                    requestBody: { values: newRows }
-                });
+                const newRowUpdates = newRows.map((row, index) => ({
+                    range: `Dashboard!C${lastConfigRow + index + 1}:E${lastConfigRow + index + 1}`,
+                    values: [row]
+                }));
+                await this.batchUpdate(newRowUpdates);
             }
             return true;
         } catch (err) {
-            console.warn('[WARN] Could not update Settings tab:', err.message);
+            console.warn('[WARN] Could not update Dashboard configuration:', err.message);
             return false;
         }
     }

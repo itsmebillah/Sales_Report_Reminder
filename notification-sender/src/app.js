@@ -6,7 +6,7 @@
  * 1. Startup: Connect Google Sheets, run Queue Recovery for stalled PROCESSING records,
  *    initialize WhatsApp Web client (kept alive continuously).
  * 2. Main Loop:
- *    - Reload Settings from Google Sheets tab.
+ *    - Reload runtime configuration from Dashboard C:E.
  *    - If SYSTEM_STATUS == 'STOP': Set Sender_Status = 'Waiting', sleep POLL_INTERVAL seconds.
  *    - If SYSTEM_STATUS == 'RUNNING':
  *        - Update Sender_Status = 'Running', Last_Run_Time = now.
@@ -14,7 +14,7 @@
  *        - Claim ONE record atomically (PENDING -> PROCESSING).
  *        - Dispatch via WhatsApp Web.
  *        - Update row status (PROCESSING -> SENT / RETRY / FAILED).
- *        - Update Last_Message_Time and daily counters in Settings tab.
+ *        - Update Last_Message_Time and daily counters in Dashboard configuration.
  * 3. Graceful Shutdown: On SIGINT/SIGTERM, write Sender_Status = 'Stopped', disconnect cleanly.
  */
 
@@ -34,6 +34,53 @@ let isSendingMessage = false;
 
 async function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function getWorkerCycleMode(runtimeConfig) {
+    const systemStatus = String(runtimeConfig.systemStatus || 'STOP').toUpperCase();
+    if (systemStatus === 'STOP') return 'IDLE';
+    if (!runtimeConfig.queueEnabled || !runtimeConfig.whatsappEnabled) return 'PAUSED';
+    return 'ACTIVE';
+}
+
+async function initializeStartupIdle({
+    sheetService,
+    whatsappProvider,
+    runtimeConfig,
+    logger = Logger,
+    configService = ConfigService,
+    afterStop = async () => {}
+}) {
+    // SYSTEM_STATUS may have remained RUNNING when Windows shut down. PM2
+    // startup must never interpret that persisted value as permission to work.
+    const stopWriteSucceeded = await sheetService.updateSettings({
+        'SYSTEM_STATUS': 'STOP',
+        'Sender_Status': 'Starting',
+        'Last_Run_Time': new Date().toISOString()
+    });
+    if (stopWriteSucceeded !== true) {
+        throw new Error('[STARTUP SAFETY] Could not persist SYSTEM_STATUS=STOP; worker startup aborted before connectivity or polling.');
+    }
+
+    logger.info('[STARTUP SAFETY] SYSTEM_STATUS=STOP persisted before queue recovery.');
+    await afterStop();
+
+    if (runtimeConfig.whatsappEnabled && !whatsappProvider.isConnected()) {
+        logger.info('[STARTUP] Initializing WhatsApp client without releasing the queue worker...');
+        const providerConfig = configService.getProviderConfig('WHATSAPP_WEB');
+        await whatsappProvider.initialize(providerConfig);
+        await whatsappProvider.connect(120000);
+        logger.info('✓ WhatsApp Web Client connected and ready; worker remains idle.');
+    }
+
+    const waitingWriteSucceeded = await sheetService.updateSettings({
+        'Sender_Status': 'Waiting',
+        'Last_Run_Time': new Date().toISOString()
+    });
+    if (waitingWriteSucceeded !== true) {
+        throw new Error('[STARTUP SAFETY] Could not persist idle runtime status; worker startup aborted before polling.');
+    }
+    return { mode: 'IDLE' };
 }
 
 async function main() {
@@ -95,7 +142,7 @@ async function main() {
         let result;
 
         try {
-            // This reads only Settings so the test always uses the configured
+            // This reads only Dashboard configuration so the test uses the configured
             // TEST_RECIPIENT_PHONE and TEST_MESSAGE, never a queue recipient.
             const testConfig = await ConfigService.reload(sheetService);
             const recipientPhone = testConfig.testRecipientPhone;
@@ -184,23 +231,30 @@ async function main() {
         await sheetService.connect(infraConfig);
         let runtimeConfig = await ConfigService.reload(sheetService);
 
-        // Step 2: Queue Recovery on Startup (scans for stalled PROCESSING records > 10 mins old)
-        Logger.info('Step 2: Running Queue Recovery scan for stalled PROCESSING records...');
-        const recoveryResult = await sheetService.recoverStalledQueue(runtimeConfig.queueSheet || 'Message_Queue', 10);
-        if (recoveryResult.recovered > 0) {
-            Logger.warn(`⚠️ [QUEUE RECOVERY] Recovered ${recoveryResult.recovered} stalled PROCESSING record(s) -> RETRY:`);
-            recoveryResult.details.forEach(d => {
-                Logger.warn(`   • Queue ID: ${d.queueId} (Row ${d.rowNumber}) - Stale since: ${d.staleSince}`);
-            });
-        } else {
-            Logger.info('✓ Queue Recovery check complete: No stalled records found.');
-        }
+        const recoverQueueAfterStop = async () => {
+            // Step 2: Queue Recovery on Startup (scans for stalled PROCESSING records > 10 mins old)
+            Logger.info('Step 2: Running Queue Recovery scan for stalled PROCESSING records...');
+            const recoveryResult = await sheetService.recoverStalledQueue(runtimeConfig.queueSheet || 'Message_Queue', 10);
+            if (recoveryResult.recovered > 0) {
+                Logger.warn(`⚠️ [QUEUE RECOVERY] Recovered ${recoveryResult.recovered} stalled PROCESSING record(s) -> RETRY:`);
+                recoveryResult.details.forEach(d => {
+                    Logger.warn(`   • Queue ID: ${d.queueId} (Row ${d.rowNumber}) - Stale since: ${d.staleSince}`);
+                });
+            } else {
+                Logger.info('✓ Queue Recovery check complete: No stalled records found.');
+            }
+        };
 
-        // Initialize Settings status fields
-        await sheetService.updateSettings({
-            'Sender_Status': 'Starting',
-            'Last_Run_Time': new Date().toISOString()
+        // Windows/PM2 startup initializes connectivity only. The Apps Script
+        // Scheduler_Time workflow explicitly changes SYSTEM_STATUS to RUNNING.
+        await initializeStartupIdle({
+            sheetService,
+            whatsappProvider,
+            runtimeConfig,
+            logger: Logger,
+            afterStop: recoverQueueAfterStop
         });
+        runtimeConfig = await ConfigService.reload(sheetService);
 
         Logger.info('✓ Initialization complete. Entering main polling loop...');
 
@@ -209,9 +263,9 @@ async function main() {
             try {
                 // Reload dynamic runtime settings on every iteration
                 runtimeConfig = await ConfigService.reload(sheetService);
-                const systemStatus = String(runtimeConfig.systemStatus || 'STOP').toUpperCase();
                 const pollIntervalMs = (runtimeConfig.pollInterval || 10) * 1000;
                 const queueSheetName = runtimeConfig.queueSheet || 'Message_Queue';
+                const cycleMode = getWorkerCycleMode(runtimeConfig);
 
                 // Check calendar day shift to reset daily counters
                 const currentDateStr = new Date().toISOString().split('T')[0];
@@ -221,19 +275,8 @@ async function main() {
                     messagesFailedToday = 0;
                 }
 
-                // Persistent auto-shutdown state is checked independently of
-                // whether the queue happens to be empty in this polling cycle.
-                const shutdownResult = await autoShutdownController.tick(runtimeConfig, {
-                    queueSheetName,
-                    senderBusy: isSendingMessage
-                });
-                if (shutdownResult.action === 'shutdown-initiated') {
-                    await sleep(pollIntervalMs);
-                    continue;
-                }
-
                 // ── GATE 1: SYSTEM_STATUS == STOP ──
-                if (systemStatus === 'STOP') {
+                if (cycleMode === 'IDLE') {
                     Logger.info(`[SYSTEM_STATUS: STOP] Worker sleeping for ${runtimeConfig.pollInterval}s...`);
                     await sheetService.updateSettings({
                         'Sender_Status': 'Waiting',
@@ -244,12 +287,23 @@ async function main() {
                 }
 
                 // ── GATE 2: Toggles Disabled ──
-                if (!runtimeConfig.queueEnabled || !runtimeConfig.whatsappEnabled) {
-                    Logger.info(`[WORKER PAUSED] Queue or WhatsApp disabled in Settings. Sleeping for ${runtimeConfig.pollInterval}s...`);
+                if (cycleMode === 'PAUSED') {
+                    Logger.info(`[WORKER PAUSED] Queue or WhatsApp disabled in Dashboard configuration. Sleeping for ${runtimeConfig.pollInterval}s...`);
                     await sheetService.updateSettings({
                         'Sender_Status': 'Paused',
                         'Last_Run_Time': new Date().toISOString()
                     });
+                    await sleep(pollIntervalMs);
+                    continue;
+                }
+
+                // Auto Shutdown may advance only after Scheduler_Time (or an
+                // explicit manual sender start) releases the worker gate.
+                const shutdownResult = await autoShutdownController.tick(runtimeConfig, {
+                    queueSheetName,
+                    senderBusy: isSendingMessage
+                });
+                if (shutdownResult.action === 'shutdown-initiated') {
                     await sleep(pollIntervalMs);
                     continue;
                 }
@@ -410,5 +464,5 @@ if (require.main === module) {
     main();
 }
 
-module.exports = { main };
+module.exports = { main, getWorkerCycleMode, initializeStartupIdle };
 

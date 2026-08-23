@@ -17,27 +17,21 @@ const ConfigLoader = (() => {
     const load = () => {
         if (cachedConfig) return cachedConfig;
 
-        const ss = SpreadsheetApp.getActiveSpreadsheet();
-        if (!ss) throw new Error("No active spreadsheet found.");
-
-        const sheet = ss.getSheetByName("Settings");
-        if (!sheet) throw new Error("Settings sheet is missing. Please run EnvironmentSetup.init().");
-
-        const data = sheet.getDataRange().getValues();
+        let repository = ConfigurationService.readMap();
+        if (Object.keys(repository.map).length === 0) {
+            ConfigurationService.ensureDefaults();
+            repository = ConfigurationService.readMap();
+        }
         const config = {};
 
-        // Start at row 1 to skip header
-        for (let i = 1; i < data.length; i++) {
-            const key = data[i][0];
-            const value = data[i][1];
-            if (key) {
-                config[key] = value;
-            }
-        }
+        const { map } = repository;
+        Object.keys(map).forEach(key => { config[key] = map[key].value; });
 
         cachedConfig = config;
         return cachedConfig;
     };
 
-    return { load };
+    const invalidate = () => { cachedConfig = null; };
+
+    return { load, invalidate };
 })();

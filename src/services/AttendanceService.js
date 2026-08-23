@@ -703,37 +703,13 @@ const AttendanceService = (() => {
         }
     };
 
-    /**
-     * Saves last sales state fingerprint and attendance sync timestamp in Settings sheet.
-     */
+    /** Saves the Attendance fingerprint and sync timestamp in Dashboard configuration. */
     const saveSyncState = (hashStr, timestampStr) => {
         try {
-            const ss = SpreadsheetApp.getActiveSpreadsheet();
-            if (!ss) return;
-            const sheet = ss.getSheetByName('Settings');
-            if (!sheet) return;
-
-            const data = sheet.getDataRange().getValues();
-            let stateRowIdx = -1;
-            let syncRowIdx = -1;
-
-            for (let i = 0; i < data.length; i++) {
-                const key = String(data[i][0] || '').trim();
-                if (key === 'LAST_SALES_STATE' || key === 'LAST_ATTENDANCE_SYNC_HASH') stateRowIdx = i + 1;
-                if (key === 'LAST_ATTENDANCE_SYNC' || key === 'LAST_ATTENDANCE_SYNC_TIME') syncRowIdx = i + 1;
-            }
-
-            if (stateRowIdx > 0) {
-                sheet.getRange(stateRowIdx, 2).setValue(hashStr);
-            } else {
-                sheet.appendRow(['LAST_SALES_STATE', hashStr]);
-            }
-
-            if (syncRowIdx > 0) {
-                sheet.getRange(syncRowIdx, 2).setValue(timestampStr);
-            } else {
-                sheet.appendRow(['LAST_ATTENDANCE_SYNC', timestampStr]);
-            }
+            ConfigurationService.updateSettings({
+                LAST_SALES_STATE: hashStr,
+                LAST_ATTENDANCE_SYNC: timestampStr
+            });
         } catch (e) {
             console.log("saveSyncState error: " + e);
         }

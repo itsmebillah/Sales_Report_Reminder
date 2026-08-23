@@ -2,7 +2,7 @@
  * ConfigService.js
  * @responsibility Single Source of Truth for configuration.
  * - Infrastructure credentials loaded strictly from .env.
- * - All runtime business configuration loaded strictly from Google Sheets "Settings" tab.
+ * - All runtime business configuration loaded from Dashboard columns C:H.
  * - Supports reload(sheetService) on every cycle for zero-restart live setting updates.
  */
 
@@ -31,7 +31,7 @@ class ConfigService {
     }
 
     /**
-     * Helper to parse boolean values from Settings sheet.
+     * Helper to parse boolean configuration values.
      */
     parseBoolean(val, fallback = false) {
         if (val === undefined || val === null || val === '') return fallback;
@@ -41,12 +41,12 @@ class ConfigService {
     }
 
     /**
-     * Reads Settings sheet and builds cached runtime configuration.
+     * Reads Dashboard configuration and builds cached runtime configuration.
      * Can be invoked every cycle to reload settings dynamically.
      * @param {Object} sheetService Instance of GoogleSheetService
      */
     async reload(sheetService) {
-        const rawMap = await sheetService.readSettingsSheet();
+        const rawMap = await sheetService.readConfiguration();
 
         this.runtimeConfig = {
             appName: String(rawMap['APP_NAME'] || 'Notification Sender').trim(),

@@ -7,7 +7,7 @@
 const VisibilityService = (() => {
 
     /**
-     * Hides system sheets and archive sheets when AUTO_HIDE_SYSTEM_SHEETS is enabled in Settings.
+     * Hides system sheets and archive sheets when AUTO_HIDE_SYSTEM_SHEETS is enabled.
      */
     const applyOfficeUserModeVisibility = () => {
         try {
@@ -18,7 +18,7 @@ const VisibilityService = (() => {
             const ss = SpreadsheetApp.getActiveSpreadsheet();
             if (!ss) return;
 
-            const systemSheets = ['Sales', 'Hierarchy', 'Contact list', 'Reminder_System', 'Settings'];
+            const systemSheets = ['Sales', 'Hierarchy', 'Contact list', 'Reminder_System'];
             const allSheets = ss.getSheets();
 
             for (let i = 0; i < allSheets.length; i++) {

@@ -79,7 +79,9 @@ const DashboardService = (() => {
             const tz = config['Timezone'] || 'Asia/Dhaka';
             const nowStr = Utilities.formatDate(new Date(), tz, "dd-MMM-yyyy HH:mm:ss");
 
-            const isWhatsappEnabled = String(config['WhatsApp_Enabled']).toUpperCase() === 'TRUE';
+            const isWhatsappEnabled = String(
+                config['WHATSAPP_ENABLED'] !== undefined ? config['WHATSAPP_ENABLED'] : config['WhatsApp_Enabled']
+            ).toUpperCase() === 'TRUE';
             const isDryRun = String(config['Dry_Run']).toUpperCase() === 'TRUE';
             const isTestMode = String(config['TEST_MODE']).toUpperCase() === 'TRUE';
             const overridePhone = String(config['OVERRIDE_PHONE'] || '').trim();
@@ -136,13 +138,18 @@ const DashboardService = (() => {
                 displayTime = `${String(displayH).padStart(2, '0')}:${m} ${ampm}`;
             }
 
-            const schedulerStatus = `ACTIVE (Daily at ${displayTime})`;
+            const workflowTriggerCount = Number(config['SCHEDULER_TRIGGER_WORKFLOW_COUNT'] || 0);
+            const legacyTriggerCount = Number(config['SCHEDULER_TRIGGER_LEGACY_COUNT'] || 0);
+            const dailyTriggerCount = Number(config['SCHEDULER_TRIGGER_DAILY_COUNT'] || 0);
+            const schedulerHealthy = workflowTriggerCount === 1 && legacyTriggerCount === 0 && dailyTriggerCount === 1;
+            const schedulerStatus = `${schedulerHealthy ? 'ACTIVE' : 'CHECK REQUIRED'} (Daily near ${displayTime})`;
 
             // Estimated Next Run (Tomorrow at scheduler hour)
             const hour = parseInt(schedulerTime.split(':')[0], 10) || 9;
+            const minute = parseInt(schedulerTime.split(':')[1], 10) || 0;
             const nextRunDate = new Date();
             nextRunDate.setDate(nextRunDate.getDate() + 1);
-            nextRunDate.setHours(hour, 0, 0, 0);
+            nextRunDate.setHours(hour, minute, 0, 0);
             const nextRunStr = Utilities.formatDate(nextRunDate, tz, "dd-MMM-yyyy HH:mm:ss") + " (Estimated)";
 
             const execTimeSec = summary.executionTimeMs !== undefined 
@@ -209,8 +216,10 @@ const DashboardService = (() => {
                 ["Records Purged in Last Cleanup", typeof purgedReminders === 'number' ? `Reminder_System: ${purgedReminders} rows` : purgedReminders]
             ];
 
-            // Safely clear content and formats to prevent date display corruption (e.g. 30-Dec-1899)
-            sheet.clear();
+            // Refresh only the operational area. Dashboard C:E is persistent
+            // configuration storage and must never be cleared by metric refreshes.
+            const operationalRange = sheet.getRange(1, 1, sheet.getMaxRows(), 2);
+            operationalRange.breakApart().clearContent().clearFormat().clearDataValidations().clearNote();
 
             // Re-write fresh clean values
             sheet.getRange(1, 1, rows.length, 2).setValues(rows);
@@ -243,6 +252,10 @@ const DashboardService = (() => {
             sheet.autoResizeColumns(1, 2);
             sheet.setColumnWidth(1, 360);
             sheet.setColumnWidth(2, 420);
+
+            // Build/refresh the single configuration control center without
+            // changing any existing values.
+            ConfigurationService.ensureDashboardConfigurationArea(sheet);
 
             // Apply Protection to make Dashboard read-only except for spreadsheet owner/editors
             try {

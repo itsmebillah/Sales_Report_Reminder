@@ -43,11 +43,47 @@ function onOpen(e) {
  * Time-driven or manual trigger entry point for daily reminders.
  */
 function processDailyReminders(e) {
+    const isScheduled = AutoShutdownRunService.isScheduledTriggerEvent(e);
+    if (isScheduled) {
+        return runScheduledDailyWorkflow(e);
+    }
+    return executeDailyReminderGeneration(false);
+}
+
+/**
+ * Opens the existing Dashboard control dialogs from their C:E/F:H action rows.
+ * Configuration value edits themselves require no copy to another sheet because
+ * Dashboard columns D and G are the persistent backend value columns.
+ */
+function onEdit(e) {
+    try {
+        if (!e || !e.range || e.range.getSheet().getName() !== 'Dashboard') return;
+        const editedColumn = e.range.getColumn();
+        if ((editedColumn !== 4 && editedColumn !== 7) || e.range.getNumRows() !== 1 || e.range.getNumColumns() !== 1) return;
+        if (typeof ConfigLoader !== 'undefined' && ConfigLoader.invalidate) ConfigLoader.invalidate();
+
+        const action = String(e.value || '').toUpperCase();
+        const label = String(e.range.getSheet().getRange(e.range.getRow(), editedColumn - 1).getDisplayValue() || '').trim();
+        if (label === 'Open Scheduler Time Picker' && action === 'TRUE') {
+            e.range.setValue(false);
+            openSchedulerTimePicker();
+        } else if (label === 'Open Auto Shutdown Control' && action === 'OPEN CONTROL') {
+            e.range.setValue('READY');
+            openAutoShutdownSettings();
+        }
+    } catch (err) {
+        console.log('Dashboard control action skipped: ' + err);
+    }
+}
+
+/**
+ * Executes the existing reminder service with the requested shutdown tracking
+ * context. Scheduled callers reach this only after Sales Data Copy succeeds.
+ */
+function executeDailyReminderGeneration(isScheduled) {
     let shutdownRun = { eligible: false, runId: '' };
     try {
-        shutdownRun = AutoShutdownRunService.begin(
-            AutoShutdownRunService.isScheduledTriggerEvent(e)
-        );
+        shutdownRun = AutoShutdownRunService.begin(isScheduled);
     } catch (stateErr) {
         console.log('[AUTO-SHUTDOWN] Run tracking unavailable — shutdown skipped: ' + stateErr.message);
     }
@@ -66,7 +102,60 @@ function processDailyReminders(e) {
         console.log('[AUTO-SHUTDOWN] Run tracking failed — shutdown skipped: ' + stateErr.message);
         try { AutoShutdownRunService.abort(shutdownRun, stateErr.message); } catch (abortErr) {}
     }
+
+    // Manual menu runs keep their historical behavior but are allowed to wake
+    // the already-running sender. They never become shutdown eligible.
+    if (!isScheduled && NotificationControlService.getQueueIds().length > 0) {
+        NotificationControlService.startSender();
+    }
     return result;
+}
+
+/**
+ * Dedicated Scheduler_Time workflow. Apps Script executes each step
+ * synchronously, so reminder generation cannot start until copyData returns.
+ */
+function runScheduledDailyWorkflow(e) {
+    if (!AutoShutdownRunService.isScheduledTriggerEvent(e)) {
+        throw new Error('runScheduledDailyWorkflow must be invoked by its clock trigger.');
+    }
+
+    const workflowId = Utilities.getUuid();
+    console.log('[AUTO DAILY WORKFLOW] Scheduled workflow started: ' + workflowId);
+
+    // Prevent a persisted RUNNING flag from processing an old queue while the
+    // new Sales data and queue are being rebuilt.
+    NotificationControlService.stopSender();
+
+    try {
+        console.log('[SALES DATA SYNC] Copy Sales Data started');
+        copyData();
+        console.log('[SALES DATA SYNC] Copy Sales Data completed successfully');
+    } catch (err) {
+        console.log('[SALES DATA SYNC] Copy Sales Data FAILED — daily reminder cancelled: ' + err.message);
+        throw err;
+    }
+
+    try {
+        console.log('[DAILY WORKFLOW] Sales data ready — starting Daily Reminders');
+        const result = executeDailyReminderGeneration(true);
+        console.log('[DAILY WORKFLOW] Daily Reminder generation completed');
+
+        const queueIds = NotificationControlService.getQueueIds();
+        if (queueIds.length === 0) {
+            NotificationControlService.stopSender();
+            console.log('[DAILY WORKFLOW] No reminder messages generated — sender remains idle and Auto Shutdown is skipped');
+            return result;
+        }
+
+        NotificationControlService.startSender();
+        console.log('[DAILY WORKFLOW] Message queue ready — notification sender released');
+        return result;
+    } catch (err) {
+        NotificationControlService.stopSender();
+        console.log('[DAILY WORKFLOW] Daily Reminder generation FAILED — sender and Auto Shutdown remain stopped: ' + err.message);
+        throw err;
+    }
 }
 
 /**
@@ -478,47 +567,32 @@ function getCurrentSchedulerTime() {
 }
 
 /**
- * Saves the selected time to Settings → Scheduler_Time, forces Plain Text formatting on the cell,
+ * Saves Scheduler_Time in Dashboard configuration as plain-text HH:mm,
  * and re-installs the project Daily execution trigger.
  * @param {string} newTime 24-hour formatted string "HH:mm" or empty string to clear.
  */
 function saveSchedulerTime(newTime) {
     try {
-        const ss = SpreadsheetApp.getActiveSpreadsheet();
-        const sheet = ss.getSheetByName("Settings");
-        if (!sheet) throw new Error("Settings sheet is missing.");
-
-        const data = sheet.getDataRange().getValues();
-        let rowIndex = -1;
-
-        // Find the row index of Scheduler_Time key
-        for (let i = 0; i < data.length; i++) {
-            if (data[i][0] && data[i][0].trim() === 'Scheduler_Time') {
-                rowIndex = i + 1; // 1-indexed row number
-                break;
-            }
+        const normalizedTime = String(newTime || '').trim();
+        if (normalizedTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(normalizedTime)) {
+            throw new Error('Scheduler Time must use 24-hour HH:mm format.');
         }
-
-        if (rowIndex === -1) {
-            throw new Error("Scheduler_Time key not found in Settings.");
-        }
-
-        const cell = sheet.getRange(rowIndex, 2);
-
-        if (newTime === "") {
-            // Clear current setting
-            cell.setValue("");
-        } else {
-            // Set 24h formatted string and force Plain Text formatting to bypass Date parsing side effects
-            cell.setValue(newTime);
-            cell.setNumberFormat('@');
-        }
+        ConfigurationService.updateSetting('Scheduler_Time', normalizedTime);
 
         // Force spreadsheet flush to make sure changes are written before trigger reload
         SpreadsheetApp.flush();
 
-        // Reload trigger configurations in Apps Script
-        EnvironmentSetup.installTrigger();
+        // Replace all reminder-workflow clock triggers, create exactly one,
+        // and persist the live post-install counts for external verification.
+        const triggerStatus = EnvironmentSetup.installTrigger();
+        NotificationControlService.updateSettings({
+            SCHEDULER_TRIGGER_LAST_VERIFIED_AT: new Date().toISOString(),
+            SCHEDULER_TRIGGER_CONFIGURED_TIME: triggerStatus.configuredSchedulerTime,
+            SCHEDULER_TRIGGER_TIMEZONE: triggerStatus.timezone,
+            SCHEDULER_TRIGGER_DAILY_COUNT: String(triggerStatus.dailyTriggerCount),
+            SCHEDULER_TRIGGER_WORKFLOW_COUNT: String(triggerStatus.runScheduledDailyWorkflowCount),
+            SCHEDULER_TRIGGER_LEGACY_COUNT: String(triggerStatus.processDailyRemindersCount)
+        });
 
         // Re-calculate and update Dashboard metrics to reflect the new scheduler next run time
         DashboardService.refreshDashboard();
@@ -530,26 +604,44 @@ function saveSchedulerTime(newTime) {
     }
 }
 
-/** Opens Auto PC Shutdown Settings dialog */
+/** Opens the Auto PC Shutdown Settings dialog. */
 function openAutoShutdownSettings() {
-  const html = HtmlService.createHtmlOutputFromFile('AutoShutdownSettings')
-      .setWidth(340)
-      .setHeight(250);
-  SpreadsheetApp.getUi().showModalDialog(html, 'Auto PC Shutdown Settings');
+    const html = HtmlService.createHtmlOutputFromFile('AutoShutdownSettings')
+        .setWidth(340)
+        .setHeight(250);
+    SpreadsheetApp.getUi().showModalDialog(html, 'Auto PC Shutdown Settings');
 }
 
+/** Returns whether automatic PC shutdown is enabled. */
 function getAutoShutdownEnabled() {
-  const val = NotificationControlService.getSetting('AUTO_SHUTDOWN_ENABLED');
-  return String(val).toUpperCase() === 'TRUE';
+    const value = NotificationControlService.getSetting('AUTO_SHUTDOWN_ENABLED');
+    return String(value).toUpperCase() === 'TRUE';
 }
 
+/** Saves whether automatic PC shutdown is enabled. */
 function saveAutoShutdownEnabled(enabled) {
-  const val = enabled ? 'TRUE' : 'FALSE';
-  NotificationControlService.updateSetting('AUTO_SHUTDOWN_ENABLED', val, 'Enable/disable auto PC shutdown after reminders');
+    const value = enabled ? 'TRUE' : 'FALSE';
+    NotificationControlService.updateSetting(
+        'AUTO_SHUTDOWN_ENABLED',
+        value,
+        'Enable/disable auto PC shutdown after reminders'
+    );
+    DashboardService.refreshDashboard();
 }
 
+/** Returns the configured shutdown delay in minutes. */
 function getAutoShutdownDelay() {
-  const val = NotificationControlService.getSetting('AUTO_SHUTDOWN_DELAY_MINUTES');
-  return Number(val) || 12;
+    const value = NotificationControlService.getSetting('AUTO_SHUTDOWN_DELAY_MINUTES');
+    return Number(value) || 12;
+}
+
+/** Saves the Auto Shutdown delay without changing shutdown safety logic. */
+function saveAutoShutdownDelay(minutes) {
+    const delay = Number(minutes);
+    if (!Number.isFinite(delay) || delay < 1 || delay > 120 || Math.floor(delay) !== delay) {
+        throw new Error('Shutdown delay must be a whole number from 1 to 120 minutes.');
+    }
+    NotificationControlService.updateSetting('AUTO_SHUTDOWN_DELAY_MINUTES', String(delay));
+    DashboardService.refreshDashboard();
 }
 

@@ -6,6 +6,29 @@
 
 const EnvironmentSetup = (() => {
 
+    const DAILY_WORKFLOW_HANDLERS = new Set([
+        'processDailyReminders',
+        'runScheduledDailyWorkflow'
+    ]);
+
+    const isDailyWorkflowClockTrigger = trigger =>
+        trigger.getEventType() === ScriptApp.EventType.CLOCK &&
+        DAILY_WORKFLOW_HANDLERS.has(trigger.getHandlerFunction());
+
+    const getDailyTriggerStatus = () => {
+        const config = ConfigLoader.load();
+        const triggers = ScriptApp.getProjectTriggers().filter(isDailyWorkflowClockTrigger);
+        const handlers = triggers.map(trigger => trigger.getHandlerFunction());
+        return {
+            configuredSchedulerTime: String(config['Scheduler_Time'] || '09:00'),
+            timezone: String(config['Timezone'] || Session.getScriptTimeZone() || 'Asia/Dhaka'),
+            dailyTriggerCount: triggers.length,
+            runScheduledDailyWorkflowCount: handlers.filter(name => name === 'runScheduledDailyWorkflow').length,
+            processDailyRemindersCount: handlers.filter(name => name === 'processDailyReminders').length,
+            handlers
+        };
+    };
+
     const createSheetIfMissing = (ss, sheetName, headers = [], defaultSettings = []) => {
         let sheet = ss.getSheetByName(sheetName);
         if (!sheet) {
@@ -40,23 +63,33 @@ const EnvironmentSetup = (() => {
     };
 
     /**
-     * Installs daily time-driven trigger configured by the Settings sheet.
+     * Installs the daily time-driven trigger configured from Dashboard.
      */
     const installTrigger = () => {
         const triggers = ScriptApp.getProjectTriggers();
-        triggers.forEach(t => ScriptApp.deleteTrigger(t));
+        const existingDailyTriggers = triggers.filter(isDailyWorkflowClockTrigger);
+        existingDailyTriggers.forEach(trigger => ScriptApp.deleteTrigger(trigger));
 
         const config = ConfigLoader.load();
         const timeStr = String(config['Scheduler_Time'] || '09:00');
-        let hour = parseInt(timeStr.split(':')[0], 10) || 9;
+        const timeMatch = /^(\d{1,2}):(\d{2})$/.exec(timeStr.trim());
+        const parsedHour = timeMatch ? parseInt(timeMatch[1], 10) : 9;
+        const parsedMinute = timeMatch ? parseInt(timeMatch[2], 10) : 0;
+        const hour = parsedHour >= 0 && parsedHour <= 23 ? parsedHour : 9;
+        const minute = parsedMinute >= 0 && parsedMinute <= 59 ? parsedMinute : 0;
+        const timezone = String(config['Timezone'] || Session.getScriptTimeZone() || 'Asia/Dhaka');
 
-        ScriptApp.newTrigger('processDailyReminders')
+        ScriptApp.newTrigger('runScheduledDailyWorkflow')
             .timeBased()
             .atHour(hour)
+            .nearMinute(minute)
             .everyDays(1)
+            .inTimezone(timezone)
             .create();
 
         installAttendanceSyncTrigger();
+        console.log(`[SCHEDULER] Installed one daily workflow trigger near ${timeStr} (${timezone})`);
+        return getDailyTriggerStatus();
     };
 
     /**
@@ -111,80 +144,21 @@ const EnvironmentSetup = (() => {
     };
 
     /**
-     * Safely migrates existing 'Settings' sheet by appending any missing configuration keys
-     * without modifying or overwriting any existing key-value pairs.
+     * Ensures every known configuration key exists in Dashboard columns C:H.
+     * Existing Dashboard values are never overwritten.
      */
     const syncSettings = () => {
-        const ss = SpreadsheetApp.getActiveSpreadsheet();
-        if (!ss) return 0;
-
-        const defaultSettings = [
-            ['Reporting_Days', 3],
-            ['Reminder_Days_Before_Lock', 0],
-            ['Timezone', 'Asia/Dhaka'],
-            ['Scheduler_Time', '09:00'],
-            ['WhatsApp_Enabled', true],
-            ['Dry_Run', true],
-            ['PHONE_NUMBER_ID', ''],
-            ['ACCESS_TOKEN', ''],
-            ['META_API_VERSION', 'v25.0'],
-            ['TEMPLATE_NAME', ''],
-            ['TEMPLATE_LANGUAGE', 'en_US'],
-            ['TEST_MODE', false],
-            ['OVERRIDE_PHONE', ''],
-            ['REMINDER_RETENTION_DAYS', 30],
-            ['LOG_RETENTION_DAYS', 10],
-            ['AUTO_HIDE_SYSTEM_SHEETS', true],
-            ['ATTENDANCE_ARCHIVE_DAY', 5],
-            ['ENABLE_AUTO_ATTENDANCE_SYNC', true],
-            ['ATTENDANCE_SYNC_INTERVAL_MINUTES', 10],
-            ['LAST_ATTENDANCE_SYNC', ''],
-            ['LAST_SALES_STATE', '']
-        ];
-
-        let sheet = ss.getSheetByName('Settings');
-        if (!sheet) {
-            sheet = createSheetIfMissing(ss, 'Settings', ['Key', 'Value'], defaultSettings);
-            return defaultSettings.length;
-        }
-
-        const data = sheet.getDataRange().getValues();
-        const existingKeys = new Set();
-
-        // Read all existing keys from Column A
-        for (let i = 0; i < data.length; i++) {
-            const key = String(data[i][0] || '').trim();
-            if (key) {
-                existingKeys.add(key);
-            }
-        }
-
-        // Append missing keys only
-        let addedCount = 0;
-        for (let i = 0; i < defaultSettings.length; i++) {
-            const defaultPair = defaultSettings[i];
-            const keyName = defaultPair[0];
-            if (!existingKeys.has(keyName)) {
-                sheet.appendRow(defaultPair);
-                addedCount++;
-            }
-        }
-
-        if (addedCount > 0) {
-            sheet.autoResizeColumns(1, 2);
-        }
-        return addedCount;
+        return ConfigurationService.ensureDefaults();
     };
 
     /**
-     * Initializes the workspace by creating 'Settings', 'Reminder_System', and 'Logs' sheets.
-     * Safely migrates existing Settings sheet if present.
+     * Initializes Dashboard configuration and required operational sheets.
      */
     const init = () => {
         const ss = SpreadsheetApp.getActiveSpreadsheet();
         if (!ss) return;
 
-        // Sync or Create Settings Sheet
+        // Ensure Dashboard-backed configuration is complete.
         syncSettings();
 
         // Create Logs Sheet
@@ -237,7 +211,7 @@ const EnvironmentSetup = (() => {
         installTrigger();
     };
 
-    return { init, installTrigger, installAttendanceSyncTrigger, syncSettings };
+    return { init, installTrigger, installAttendanceSyncTrigger, syncSettings, getDailyTriggerStatus };
 })();
 
 /**
@@ -248,8 +222,38 @@ function runEnvironmentSetup() {
 }
 
 /**
- * Entry point for users to safely migrate existing Settings sheets.
+ * Compatibility entry point: ensures Dashboard configuration defaults.
  */
 function runSettingsMigration() {
     return EnvironmentSetup.syncSettings();
+}
+
+/**
+ * Copies every legacy Settings key/value into Dashboard C:E and verifies it.
+ * The legacy tab intentionally remains until the Dashboard-backed Node worker
+ * and Apps Script readers/writers have been verified in production.
+ */
+function migrateSettingsToDashboard() {
+    return ConfigurationService.migrateFromLegacySettings(false);
+}
+
+/**
+ * Final cutover step. Re-verifies every legacy value, then removes the old tab.
+ * Run only after the Dashboard-backed Apps Script and Node worker are live.
+ */
+function removeLegacySettingsAfterMigration() {
+    return ConfigurationService.migrateFromLegacySettings(true);
+}
+
+/**
+ * Reinstalls only the Scheduler_Time daily workflow trigger and returns the
+ * resulting trigger count. It does not initialize or clear any sheets.
+ */
+function reinstallDailyWorkflowTrigger() {
+    return EnvironmentSetup.installTrigger();
+}
+
+/** Returns the live reminder-workflow clock trigger counts without changing them. */
+function getDailyWorkflowTriggerStatus() {
+    return EnvironmentSetup.getDailyTriggerStatus();
 }

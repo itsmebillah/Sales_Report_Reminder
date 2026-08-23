@@ -4,13 +4,13 @@
  *
  * ARCHITECTURE RULE:
  *   This service NEVER sends WhatsApp messages.
- *   It ONLY reads/writes to the Settings tab and Message_Queue tab.
- *   The Node.js worker monitors Settings and acts accordingly.
+ *   It ONLY reads/writes Dashboard-backed configuration and Message_Queue.
+ *   The Node.js worker monitors the same Dashboard configuration repository.
  */
 
 const NotificationControlService = (() => {
 
-    // ─── Settings schema with defaults ───────────────────────────────────────
+    // Dashboard configuration schema is centralized in ConfigurationService.
 
     const DEFAULT_SETTINGS = [
         { key: 'AUTO_SHUTDOWN_ENABLED', value: 'FALSE', description: 'Enable/disable auto PC shutdown after reminders' },
@@ -40,17 +40,6 @@ const NotificationControlService = (() => {
 
     // ─── Private helpers ──────────────────────────────────────────────────────
 
-    const _getSettingsSheet = () => {
-        const ss = SpreadsheetApp.getActiveSpreadsheet();
-        let sheet = ss.getSheetByName('Settings');
-        if (!sheet) {
-            sheet = ss.insertSheet('Settings');
-            sheet.getRange('A1:C1').setValues([['Key', 'Value', 'Description']]);
-            sheet.getRange('A1:C1').setFontWeight('bold');
-        }
-        return sheet;
-    };
-
     const _getQueueSheet = () => {
         const ss = SpreadsheetApp.getActiveSpreadsheet();
         const sheet = ss.getSheetByName('Message_Queue');
@@ -59,58 +48,22 @@ const NotificationControlService = (() => {
     };
 
     /**
-     * Reads all Settings rows into a map of { key -> { value, row } }.
-     */
-    const _readSettingsMap = () => {
-        const sheet = _getSettingsSheet();
-        const data = sheet.getDataRange().getValues();
-        const map = {};
-        for (let i = 1; i < data.length; i++) {
-            const key = String(data[i][0] || '').trim();
-            if (key) {
-                map[key] = { value: data[i][1], row: i + 1 };
-            }
-        }
-        return { map, sheet };
-    };
-
-    /**
-     * Upserts a single key-value pair in the Settings tab.
+     * Upserts one Dashboard-backed configuration value.
      * Inserts a new row if the key does not exist.
      * @param {string} key
      * @param {string|number} value
      * @param {string} [description]
      */
     const updateSetting = (key, value, description) => {
-        const { map, sheet } = _readSettingsMap();
-        if (map[key]) {
-            sheet.getRange(map[key].row, 2).setValue(value);
-        } else {
-            const lastRow = sheet.getLastRow();
-            sheet.getRange(lastRow + 1, 1, 1, 3).setValues([[key, value, description || '']]);
-        }
+        ConfigurationService.updateSetting(key, value);
     };
 
     /**
-     * Upserts multiple Settings values after a single sheet read.
+     * Upserts multiple Dashboard-backed configuration values.
      * Existing descriptions are preserved; new keys receive a blank description.
      */
     const updateSettings = (settingsMap) => {
-        const { map, sheet } = _readSettingsMap();
-        const newRows = [];
-
-        Object.keys(settingsMap).forEach(key => {
-            const value = settingsMap[key];
-            if (map[key]) {
-                sheet.getRange(map[key].row, 2).setValue(value);
-            } else {
-                newRows.push([key, value, '']);
-            }
-        });
-
-        if (newRows.length > 0) {
-            sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, 3).setValues(newRows);
-        }
+        ConfigurationService.updateSettings(settingsMap);
     };
 
     /**
@@ -119,8 +72,8 @@ const NotificationControlService = (() => {
      * @returns {string}
      */
     const getSetting = (key) => {
-        const { map } = _readSettingsMap();
-        return map[key] ? String(map[key].value || '') : '';
+        const value = ConfigurationService.getSetting(key);
+        return value === undefined || value === null ? '' : String(value);
     };
 
     /**
@@ -142,22 +95,12 @@ const NotificationControlService = (() => {
     // ─── Public API ───────────────────────────────────────────────────────────
 
     /**
-     * Ensures all required Settings keys exist with defaults.
+     * Ensures all required Dashboard configuration keys exist with defaults.
      * Only writes rows that are completely missing — never overwrites existing values.
      * @returns {number} Number of new rows added.
      */
     const ensureDefaultSettings = () => {
-        const { map, sheet } = _readSettingsMap();
-        let added = 0;
-        for (const setting of DEFAULT_SETTINGS) {
-            if (map[setting.key] === undefined) {
-                const lastRow = sheet.getLastRow();
-                sheet.getRange(lastRow + 1, 1, 1, 3)
-                    .setValues([[setting.key, setting.value, setting.description]]);
-                added++;
-            }
-        }
-        return added;
+        return ConfigurationService.ensureDefaults();
     };
 
     /**
