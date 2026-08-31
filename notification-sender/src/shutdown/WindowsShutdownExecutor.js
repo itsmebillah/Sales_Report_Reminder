@@ -10,7 +10,7 @@ function executeWindowsShutdown() {
             return;
         }
 
-        execFile('shutdown.exe', ['/s', '/t', '0'], { windowsHide: true }, error => {
+        execFile('shutdown.exe', ['/s', '/t', '0', '/f'], { windowsHide: true }, error => {
             if (error) {
                 reject(error);
                 return;

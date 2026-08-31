@@ -12,7 +12,7 @@
  *        - Update Sender_Status = 'Running', Last_Run_Time = now.
  *        - Scan Message_Queue for PENDING records.
  *        - Claim ONE record atomically (PENDING -> PROCESSING).
- *        - Dispatch via WhatsApp Web.
+ *        - Dispatch via WhatsApp Web (respecting DRY RUN simulation & TEST MODE recipient redirection).
  *        - Update row status (PROCESSING -> SENT / RETRY / FAILED).
  *        - Update Last_Message_Time and daily counters in Dashboard configuration.
  * 3. Graceful Shutdown: On SIGINT/SIGTERM, write Sender_Status = 'Stopped', disconnect cleanly.
@@ -25,9 +25,10 @@ const WhatsAppWebProvider = require('./providers/WhatsAppWebProvider');
 const Logger = require('./utils/Logger');
 const AutoShutdownController = require('./shutdown/AutoShutdownController');
 const executeWindowsShutdown = require('./shutdown/WindowsShutdownExecutor');
+const { formatBDDateTime, getBDDateStr } = require('./utils/DateFormatter');
 
 let isKeepAliveActive = true;
-let todayDateStr = new Date().toISOString().split('T')[0];
+let todayDateStr = getBDDateStr();
 let messagesSentToday = 0;
 let messagesFailedToday = 0;
 let isSendingMessage = false;
@@ -56,7 +57,7 @@ async function initializeStartupIdle({
     const stopWriteSucceeded = await sheetService.updateSettings({
         'SYSTEM_STATUS': 'STOP',
         'Sender_Status': 'Starting',
-        'Last_Run_Time': new Date().toISOString()
+        'Last_Run_Time': formatBDDateTime()
     });
     if (stopWriteSucceeded !== true) {
         throw new Error('[STARTUP SAFETY] Could not persist SYSTEM_STATUS=STOP; worker startup aborted before connectivity or polling.');
@@ -75,7 +76,7 @@ async function initializeStartupIdle({
 
     const waitingWriteSucceeded = await sheetService.updateSettings({
         'Sender_Status': 'Waiting',
-        'Last_Run_Time': new Date().toISOString()
+        'Last_Run_Time': formatBDDateTime()
     });
     if (waitingWriteSucceeded !== true) {
         throw new Error('[STARTUP SAFETY] Could not persist idle runtime status; worker startup aborted before polling.');
@@ -108,7 +109,7 @@ async function main() {
             if (sheetService.isConnected) {
                 await sheetService.updateSettings({
                     'Sender_Status': 'Stopped',
-                    'Last_Run_Time': new Date().toISOString()
+                    'Last_Run_Time': formatBDDateTime()
                 });
                 await sheetService.disconnect();
             }
@@ -268,7 +269,7 @@ async function main() {
                 const cycleMode = getWorkerCycleMode(runtimeConfig);
 
                 // Check calendar day shift to reset daily counters
-                const currentDateStr = new Date().toISOString().split('T')[0];
+                const currentDateStr = getBDDateStr();
                 if (currentDateStr !== todayDateStr) {
                     todayDateStr = currentDateStr;
                     messagesSentToday = 0;
@@ -280,7 +281,7 @@ async function main() {
                     Logger.info(`[SYSTEM_STATUS: STOP] Worker sleeping for ${runtimeConfig.pollInterval}s...`);
                     await sheetService.updateSettings({
                         'Sender_Status': 'Waiting',
-                        'Last_Run_Time': new Date().toISOString()
+                        'Last_Run_Time': formatBDDateTime()
                     });
                     await sleep(pollIntervalMs);
                     continue;
@@ -291,7 +292,7 @@ async function main() {
                     Logger.info(`[WORKER PAUSED] Queue or WhatsApp disabled in Dashboard configuration. Sleeping for ${runtimeConfig.pollInterval}s...`);
                     await sheetService.updateSettings({
                         'Sender_Status': 'Paused',
-                        'Last_Run_Time': new Date().toISOString()
+                        'Last_Run_Time': formatBDDateTime()
                     });
                     await sleep(pollIntervalMs);
                     continue;
@@ -311,7 +312,7 @@ async function main() {
                 // ── SYSTEM_STATUS == RUNNING ──
                 await sheetService.updateSettings({
                     'Sender_Status': 'Running',
-                    'Last_Run_Time': new Date().toISOString()
+                    'Last_Run_Time': formatBDDateTime()
                 });
 
                 // Ensure WhatsApp Client is connected
@@ -332,7 +333,7 @@ async function main() {
                     Logger.info(`[QUEUE IDLE] No PENDING records in "${queueSheetName}". Sleeping for ${runtimeConfig.pollInterval}s...`);
                     await sheetService.updateSettings({
                         'Sender_Status': 'Waiting',
-                        'Last_Run_Time': new Date().toISOString()
+                        'Last_Run_Time': formatBDDateTime()
                     });
                     await sleep(pollIntervalMs);
                     continue;
@@ -349,38 +350,70 @@ async function main() {
                         Logger.info(`✓ [CLAIM SUCCESS] Row ${queueRecord.rowIndex} locked. Sending message...`);
                         await sheetService.updateSettings({
                             'Sender_Status': 'Sending',
-                            'Last_Run_Time': new Date().toISOString()
+                            'Last_Run_Time': formatBDDateTime()
                         });
 
-                        // Send WhatsApp message (blocks for up to 30s while ACK == 0)
+                        // Check Dry Run & Test Mode Overrides
                         let sendResult;
-                        isSendingMessage = true;
-                        try {
-                            sendResult = await whatsappProvider.send({
-                                recipientPhone: queueRecord.recipientPhone,
-                                message: queueRecord.message
-                            });
-                        } finally {
-                            isSendingMessage = false;
+                        const isDryRun = Boolean(runtimeConfig.dryRun);
+                        const isTestMode = Boolean(runtimeConfig.testMode || runtimeConfig.senderMode === 'TEST');
+                        const testPhone = String(runtimeConfig.testRecipientPhone || runtimeConfig.overridePhone || '').trim();
+
+                        let targetPhone = queueRecord.recipientPhone;
+                        if (isTestMode && testPhone !== '') {
+                            targetPhone = testPhone;
+                            Logger.info(`[TEST MODE ACTIVE] Redirecting Queue ID: ${queueRecord.queueId} (${queueRecord.recipientName}) -> TEST PHONE: ${targetPhone}`);
                         }
 
-                        const nowIso = new Date().toISOString();
+                        if (isDryRun) {
+                            Logger.info(`[DRY RUN SIMULATION] Simulated WhatsApp send for Queue ID: ${queueRecord.queueId} to ${targetPhone} (No real message sent).`);
+                            sendResult = {
+                                success: true,
+                                outcome: 'CONFIRMED',
+                                messageId: `DRY_RUN_${Date.now()}`,
+                                ack: 1,
+                                timestamp: new Date()
+                            };
+                        } else if (isTestMode && !testPhone) {
+                            Logger.warn(`[TEST MODE WARNING] Test Mode is active but TEST_RECIPIENT_PHONE is blank! Simulating transmission to protect real recipients.`);
+                            sendResult = {
+                                success: true,
+                                outcome: 'CONFIRMED',
+                                messageId: `TEST_SIMULATED_${Date.now()}`,
+                                ack: 1,
+                                timestamp: new Date()
+                            };
+                        } else {
+                            // Send real WhatsApp message (blocks for up to 30s while ACK == 0)
+                            isSendingMessage = true;
+                            try {
+                                sendResult = await whatsappProvider.send({
+                                    recipientPhone: targetPhone,
+                                    message: queueRecord.message
+                                });
+                            } finally {
+                                isSendingMessage = false;
+                            }
+                        }
+
+                        const nowBD = formatBDDateTime();
+                        const sentAtBD = sendResult.timestamp ? formatBDDateTime(sendResult.timestamp) : nowBD;
 
                         if (sendResult.success && sendResult.ack >= 1) {
                             await sheetService.updateQueueResult(queueSheetName, queueRecord.rowIndex, {
                                 status: 'SENT',
-                                sentAt: sendResult.timestamp || nowIso,
+                                sentAt: sentAtBD,
                                 messageId: sendResult.messageId || '',
                                 ack: sendResult.ack,
-                                errorMessage: '',
+                                errorMessage: isDryRun ? '[DRY_RUN_SIMULATED]' : '',
                                 retryCount: queueRecord.retryCount || 0
                             });
                             messagesSentToday++;
-                            Logger.info(`✓ [SENT] Queue ID: ${queueRecord.queueId} | Row ${queueRecord.rowIndex} | ACK: ${sendResult.ack}`);
+                            Logger.info(`✓ [SENT] Queue ID: ${queueRecord.queueId} | Row ${queueRecord.rowIndex} | ACK: ${sendResult.ack}${isDryRun ? ' (DRY RUN)' : ''} | SentAt: ${sentAtBD}`);
                             await sheetService.updateSettings({
                                 'Sender_Status': 'Running',
-                                'Last_Run_Time': nowIso,
-                                'Last_Message_Time': nowIso,
+                                'Last_Run_Time': nowBD,
+                                'Last_Message_Time': nowBD,
                                 'Messages_Sent_Today': String(messagesSentToday)
                             });
 
@@ -390,7 +423,7 @@ async function main() {
                             const diagnostic = sendResult.error || 'Dispatch was attempted, but delivery confirmation could not be correlated safely. Automatic retry is blocked to prevent a duplicate message.';
                             await sheetService.updateQueueResult(queueSheetName, queueRecord.rowIndex, {
                                 status: 'SENT',
-                                sentAt: sendResult.timestamp || nowIso,
+                                sentAt: sentAtBD,
                                 messageId: sendResult.messageId || '',
                                 ack: sendResult.ack !== undefined ? sendResult.ack : 0,
                                 errorMessage: diagnostic,
@@ -400,8 +433,8 @@ async function main() {
                             Logger.warn(`⚠️ [SENT (CONFIRMATION_PENDING)] Queue ID: ${queueRecord.queueId} | Row ${queueRecord.rowIndex} | ACK: ${sendResult.ack !== undefined ? sendResult.ack : 0} -> ${diagnostic}`);
                             await sheetService.updateSettings({
                                 'Sender_Status': 'Running',
-                                'Last_Run_Time': nowIso,
-                                'Last_Message_Time': nowIso,
+                                'Last_Run_Time': nowBD,
+                                'Last_Message_Time': nowBD,
                                 'Messages_Sent_Today': String(messagesSentToday)
                             });
 
@@ -421,7 +454,7 @@ async function main() {
                             Logger.warn(`⚠️ [RETRY/FAILED] Queue ID: ${queueRecord.queueId} | Row ${queueRecord.rowIndex} -> Status: ${newStatus} (Reason: ${errorReason})`);
                             await sheetService.updateSettings({
                                 'Sender_Status': 'Running',
-                                'Last_Run_Time': nowIso,
+                                'Last_Run_Time': nowBD,
                                 'Messages_Failed_Today': String(messagesFailedToday)
                             });
                         }
@@ -435,7 +468,7 @@ async function main() {
                 try {
                     await sheetService.updateSettings({
                         'Sender_Status': 'Error',
-                        'Last_Run_Time': new Date().toISOString()
+                        'Last_Run_Time': formatBDDateTime()
                     });
                 } catch (e) {}
                 await sleep(10000);
@@ -448,21 +481,22 @@ async function main() {
             try {
                 await sheetService.updateSettings({
                     'Sender_Status': 'Error',
-                    'Last_Run_Time': new Date().toISOString()
+                    'Last_Run_Time': formatBDDateTime()
                 });
-                await sheetService.disconnect();
             } catch (e) {}
-        }
-        if (whatsappProvider && whatsappProvider.isConnected()) {
-            await whatsappProvider.disconnect();
         }
         process.exit(1);
     }
 }
 
 if (require.main === module) {
-    main();
+    main().catch(err => {
+        Logger.error('Unhandled Bootstrap Exception:', err);
+        process.exit(1);
+    });
 }
 
-module.exports = { main, getWorkerCycleMode, initializeStartupIdle };
-
+module.exports = {
+    getWorkerCycleMode,
+    initializeStartupIdle
+};

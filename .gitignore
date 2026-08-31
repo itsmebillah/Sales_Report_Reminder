@@ -17,4 +17,6 @@ notification-sender/sales-reminder-504707-cf0e2309932e.json
 final_test_output*.json
 hierarchy_response.json
 test5.json
+response.html
+*.backup
 package-lock.json

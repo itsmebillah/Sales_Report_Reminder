@@ -6,7 +6,7 @@ This repository contains an operational automation system that handles sales, at
 
 ## Credentials
 
-- Store Apps Script credentials in Script Properties or the controlled `Settings` sheet.
+- Store Apps Script credentials in Script Properties or the access-controlled Dashboard configuration area.
 - Store notification-sender infrastructure values in `notification-sender/.env` using `.env.example` as the contract.
 - Never commit Meta access tokens, Telegram tokens, service-account JSON, session data, recipient phone numbers, or spreadsheet exports.
 - Treat Google Sheets sharing rules and Apps Script deployment access as part of the security boundary.

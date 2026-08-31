@@ -7,7 +7,7 @@
 const WhatsAppService = (() => {
     /**
      * Sends a WhatsApp message using Meta WhatsApp Cloud API.
-     * Reads PHONE_NUMBER_ID, ACCESS_TOKEN, META_API_VERSION, TEMPLATE_NAME, and TEMPLATE_LANGUAGE from Settings.
+     * Reads PHONE_NUMBER_ID, ACCESS_TOKEN, META_API_VERSION, TEMPLATE_NAME, and TEMPLATE_LANGUAGE from Dashboard configuration.
      * Supports both template-based messages and text fallback messages.
      * Never throws uncaught exceptions.
      * @param {string|number} phoneNumber 
@@ -52,11 +52,11 @@ const WhatsAppService = (() => {
             const templateLanguage = config['TEMPLATE_LANGUAGE'] || 'en_US';
 
             // Testing Override Evaluation
-            const isTestMode = String(config['TEST_MODE']).toUpperCase() === 'TRUE';
-            const overridePhone = String(config['OVERRIDE_PHONE'] || '').trim();
+            const isTestMode = String(config['TEST_MODE']).toUpperCase() === 'TRUE' || String(config['SENDER_MODE']).toUpperCase() === 'TEST';
+            const overridePhone = String(config['TEST_RECIPIENT_PHONE'] || config['OVERRIDE_PHONE'] || '').trim();
             const isOverridden = Boolean(isTestMode && overridePhone !== '');
 
-            // Destination phone selection (Override recipient if TEST_MODE is active and OVERRIDE_PHONE is present)
+            // Destination phone selection (Override recipient if TEST_MODE is active and OVERRIDE_PHONE/TEST_RECIPIENT_PHONE is present)
             const targetDestinationPhone = isOverridden ? overridePhone : phoneNumber;
 
             if (!phoneNumberId || String(phoneNumberId).trim() === '') {
@@ -64,7 +64,7 @@ const WhatsAppService = (() => {
                     success: false,
                     statusCode: 400,
                     responseText: '',
-                    errorMessage: "PHONE_NUMBER_ID is missing or blank in Settings.",
+                    errorMessage: "PHONE_NUMBER_ID is missing or blank in Dashboard configuration.",
                     isTestOverride: isOverridden,
                     targetPhone: targetDestinationPhone
                 };
@@ -75,7 +75,7 @@ const WhatsAppService = (() => {
                     success: false,
                     statusCode: 401,
                     responseText: '',
-                    errorMessage: "ACCESS_TOKEN is missing or blank in Settings.",
+                    errorMessage: "ACCESS_TOKEN is missing or blank in Dashboard configuration.",
                     isTestOverride: isOverridden,
                     targetPhone: targetDestinationPhone
                 };
@@ -104,7 +104,21 @@ const WhatsAppService = (() => {
                 const dateStr = messageOrParams[1] || '';
                 const countStr = messageOrParams[2] || '';
                 const srListStr = messageOrParams[3] || '';
-                fallbackBodyText = `প্রিয় ${tsoName},\n\n📢 সেলস পোস্টিং রিমাইন্ডার\n\n📅 রিপোর্টিং তারিখ: ${dateStr}\n\n📌 মোট বাকি এসআর: ${countStr} জন\n\nবাকি থাকা এসআরদের তালিকা:\n\n${srListStr}\n\nঅনুগ্রহ করে নির্ধারিত সময়সীমার মধ্যে উপরের এসআরদের সেলস পোস্টিং সম্পন্ন করুন।\n\nধন্যবাদ।`;
+                const tz = config['Timezone'] || 'Asia/Dhaka';
+                const nextDayDate = typeof DateUtils !== 'undefined' && DateUtils.getNextDayDate
+                    ? DateUtils.getNextDayDate(new Date(), tz)
+                    : new Date(Date.now() + 86400000);
+                const formattedNextDayDate = typeof DateUtils !== 'undefined' && DateUtils.formatDate
+                    ? DateUtils.formatDate(nextDayDate, tz)
+                    : Utilities.formatDate(nextDayDate, tz, "dd-MMM-yyyy");
+                const deadlineText = `${formattedNextDayDate} 10.00 থেকে সকাল 11.00 টা`;
+                const messageDraft = String(config['MESSAGE_DRAFT'] || config['REMINDER_MESSAGE_DRAFT'] || 'WITH_DEADLINE').toUpperCase().trim();
+                const isDraft2 = messageDraft === 'STANDARD' || messageDraft === 'DRAFT_2' || messageDraft === 'DRAFT 2';
+                if (isDraft2) {
+                    fallbackBodyText = `প্রিয় ${tsoName},\n\n📢 সেলস পোস্টিং রিমাইন্ডার\n\n📅 রিপোর্টিং তারিখ: ${dateStr}\n\n📌 মোট বাকি এসআর: ${countStr} জন\n\nবাকি থাকা এসআরদের তালিকা:\n\n${srListStr}\n\nঅনুগ্রহ করে নির্ধারিত সময়সীমার মধ্যে উপরের এসআরদের সেলস পোস্টিং সম্পন্ন করুন।\n\nধন্যবাদ।`;
+                } else {
+                    fallbackBodyText = `প্রিয় ${tsoName},\n\n📢 সেলস পোস্টিং রিমাইন্ডার\n\n📅 রিপোর্টিং তারিখ: *${dateStr}*\n⏰ পোস্টিংয়ের শেষ সময়: *${deadlineText}*\n\n📌 মোট বাকি এসআর: ${countStr} জন\n\nবাকি থাকা এসআরদের তালিকা:\n\n${srListStr}\n\nঅনুগ্রহ করে নির্ধারিত সময়সীমার মধ্যে উপরের এসআরদের সেলস পোস্টিং সম্পন্ন করুন।\n\nধন্যবাদ।`;
+                }
             } else {
                 const msgStr = String(messageOrParams || '');
                 bodyParameters = [{ type: "text", text: sanitizeTemplateParameter(msgStr) }];

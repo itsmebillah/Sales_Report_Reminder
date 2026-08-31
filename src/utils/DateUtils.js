@@ -1,7 +1,7 @@
 /**
  * @fileoverview DateUtils.js
  * @responsibility Shared utilities for calculating reporting deadlines natively using 
- * the Settings constraints and mapping dates to spreadsheet columns.
+ * the configuration constraints and mapping dates to spreadsheet columns.
  */
 
 const DateUtils = (() => {
@@ -66,6 +66,21 @@ const DateUtils = (() => {
     };
 
     /**
+     * Calculates the next calendar day relative to the given reference date (or current date) in the timezone.
+     * @param {Date} [refDate] Optional reference date.
+     * @param {string} [timezone] Timezone string e.g. 'Asia/Dhaka'.
+     * @returns {Date}
+     */
+    const getNextDayDate = (refDate, timezone) => {
+        const tz = timezone || 'Asia/Dhaka';
+        const baseDate = refDate || new Date();
+        const nowStr = baseDate.toLocaleString("en-US", { timeZone: tz });
+        const localNow = new Date(nowStr);
+        localNow.setDate(localNow.getDate() + 1);
+        return localNow;
+    };
+
+    /**
      * Formats a date into a clean string for logging and WhatsApp messages.
      */
     const formatDate = (dateObj, timezone) => {
@@ -75,6 +90,7 @@ const DateUtils = (() => {
     return {
         getReportingMonthDate,
         getTargetSalesDate,
+        getNextDayDate,
         getDayOfMonth,
         getReminderEligibilityDate,
         formatDate

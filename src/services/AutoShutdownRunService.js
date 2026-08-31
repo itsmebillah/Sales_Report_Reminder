@@ -24,10 +24,6 @@ const AutoShutdownRunService = (() => {
         });
     };
 
-    /**
-     * Arms tracking only for an Apps Script clock-trigger invocation.
-     * Manual menu/editor runs explicitly cancel any previous countdown.
-     */
     const begin = isScheduled => {
         if (!isScheduled) {
             clearState('MANUAL_RUN', 'Manual reminder run is not shutdown eligible');
@@ -43,9 +39,7 @@ const AutoShutdownRunService = (() => {
         }
 
         const previousCountdown = NotificationControlService.getSetting('AUTO_SHUTDOWN_PENDING_UNTIL');
-        if (previousCountdown) {
-            log('Shutdown cancelled — new scheduled reminder run detected');
-        }
+        if (previousCountdown) log('Shutdown cancelled — new scheduled reminder run detected');
 
         const runId = Utilities.getUuid();
         writeState({
@@ -63,9 +57,6 @@ const AutoShutdownRunService = (() => {
         return { eligible: true, runId };
     };
 
-    /**
-     * Captures the exact queue IDs after ReminderService finishes writing the run.
-     */
     const completeGeneration = run => {
         if (!run || !run.eligible || !run.runId) return;
         if (NotificationControlService.getSetting('AUTO_SHUTDOWN_RUN_ID') !== run.runId) {
@@ -102,10 +93,5 @@ const AutoShutdownRunService = (() => {
         log('Shutdown aborted — reminder run failed before queue tracking completed');
     };
 
-    return {
-        isScheduledTriggerEvent,
-        begin,
-        completeGeneration,
-        abort
-    };
+    return { isScheduledTriggerEvent, begin, completeGeneration, abort };
 })();

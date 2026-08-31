@@ -165,6 +165,40 @@ test('Dashboard configuration renders compact left/right panels and fixes date d
     assert.match(main, /action === 'OPEN CONTROL'/);
 });
 
+test('Dashboard UI summaries and dynamic status formatting remain presentation-only', () => {
+    const repository = read('src/services/ConfigurationService.js');
+    const dashboard = read('src/services/DashboardService.js');
+
+    assert.match(repository, /Scheduler Status \/ Configured Run/);
+    assert.match(repository, /Queue Status \/ Today/);
+    assert.match(repository, /schedulerSummaryFormula/);
+    assert.match(repository, /queueSummaryFormula/);
+    assert.match(repository, /E\/H stay blank/);
+    assert.match(repository, /whenNumberGreaterThan\(0\)/);
+    assert.match(repository, /AUTO_SHUTDOWN_RUN_PHASE/);
+    assert.match(repository, /countdownFormula/);
+    assert.match(repository, /setHiddenGridlines\(true\)/);
+    assert.match(repository, /setColumnWidth\(KEY_COLUMN, 28\)/);
+    assert.match(repository, /setColumnWidth\(RIGHT_KEY_COLUMN, 28\)/);
+    assert.match(dashboard, /const sectionRows = \[4, 10, 18, 27, 31\]/);
+    assert.match(dashboard, /getRange\(1, 1, rows\.length, 2\)\s*\.setFontFamily/);
+});
+
+test('Dashboard compactness uses fixed row heights and wraps technical columns', () => {
+    const repository = read('src/services/ConfigurationService.js');
+    const dashboard = read('src/services/DashboardService.js');
+
+    assert.match(repository, /setRowHeightsForced\(1, visibleRows, 31\)/);
+    assert.match(dashboard, /setRowHeightsForced\(1, rows\.length, 31\)/);
+    assert.match(repository, /setWrapStrategy\(SpreadsheetApp\.WrapStrategy\.WRAP\)/);
+    assert.match(dashboard, /setWrapStrategy\(SpreadsheetApp\.WrapStrategy\.WRAP\)/);
+    assert.doesNotMatch(repository, /setVerticalAlignment\('middle'\)\.setWrap\(true\)/);
+    assert.match(repository, /hideColumns\(KEY_COLUMN\)/);
+    assert.match(repository, /hideColumns\(RIGHT_KEY_COLUMN\)/);
+    assert.match(dashboard, /const screenFitLastRow = 36/);
+    assert.match(dashboard, /hideRows\(screenFitLastRow \+ 1, rows\.length - screenFitLastRow\)/);
+});
+
 test('only required Node runtime values are added to Dashboard unprotected ranges', () => {
     const repository = read('src/services/ConfigurationService.js');
     [

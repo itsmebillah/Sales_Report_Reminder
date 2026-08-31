@@ -21,7 +21,7 @@ Sales Report Reminder reduces manual follow-up across sales reporting and field 
 - Daily reminder processing with test-recipient controls
 - Attendance synchronization and summary generation
 - Append-oriented queue logging, retries, and completed-message cleanup
-- Runtime settings loaded from a controlled `Settings` sheet
+- Runtime configuration managed in Dashboard columns C:E
 - Decoupled notification sender with WhatsApp Web support
 - Provider boundaries for Meta, Telegram, email, and SMS; these remain placeholders until configured and verified
 

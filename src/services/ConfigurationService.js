@@ -30,6 +30,7 @@ const ConfigurationService = (() => {
         'SCHEDULER_TRIGGER_LAST_VERIFIED_AT',
         'WHATSAPP_ENABLED',
         'SENDER_MODE',
+        'MESSAGE_DRAFT',
         'Dry_Run',
         'TEST_MODE',
         'TEST_RECIPIENT_PHONE',
@@ -53,6 +54,33 @@ const ConfigurationService = (() => {
         'AUTO_SHUTDOWN_PENDING_UNTIL',
         'AUTO_SHUTDOWN_RETRY_USED',
         'AUTO_SHUTDOWN_CANCEL_REASON'
+    ]);
+
+    // Presentation priority only. This never changes where a key is stored or
+    // how Apps Script/Node reads and writes its value.
+    const PRIMARY_OPERATOR_KEYS = new Set([
+        'Scheduler_Time',
+        'SCHEDULER_TRIGGER_CONFIGURED_TIME',
+        'SCHEDULER_TRIGGER_DAILY_COUNT',
+        'SCHEDULER_TRIGGER_WORKFLOW_COUNT',
+        'SCHEDULER_TRIGGER_LEGACY_COUNT',
+        'WHATSAPP_ENABLED',
+        'SENDER_MODE',
+        'MESSAGE_DRAFT',
+        'Dry_Run',
+        'AUTO_SHUTDOWN_ENABLED',
+        'AUTO_SHUTDOWN_DELAY_MINUTES',
+        'AUTO_SHUTDOWN_RUN_PHASE',
+        'AUTO_SHUTDOWN_RUN_ACTIVE',
+        'AUTO_SHUTDOWN_PENDING_UNTIL',
+        'AUTO_SHUTDOWN_RETRY_USED',
+        'AUTO_SHUTDOWN_CANCEL_REASON',
+        'SYSTEM_STATUS',
+        'Sender_Status',
+        'Last_Run_Time',
+        'Last_Message_Time',
+        'Messages_Sent_Today',
+        'Messages_Failed_Today'
     ]);
 
     const SECTIONS = [
@@ -79,6 +107,7 @@ const ConfigurationService = (() => {
                 ['WHATSAPP_ENABLED', 'WhatsApp Sender Enabled', true, 'Enable WhatsApp Web queue sending.', 'toggle'],
                 ['WhatsApp_Enabled', 'WhatsApp API Enabled', true, 'Enable legacy Meta WhatsApp API sending.', 'toggle'],
                 ['SENDER_MODE', 'Sender Mode', 'PRODUCTION', 'TEST or PRODUCTION.', 'list', ['PRODUCTION', 'TEST']],
+                ['MESSAGE_DRAFT', 'Reminder Message Draft', 'WITH_DEADLINE', 'Choose reminder message draft format: WITH_DEADLINE or STANDARD.', 'list', ['WITH_DEADLINE', 'STANDARD']],
                 ['Dry_Run', 'Dry Run', true, 'Simulate legacy API transmission without sending.', 'toggle'],
                 ['TEST_MODE', 'Test Mode', false, 'Redirect supported sends to the test recipient.', 'toggle'],
                 ['TEST_RECIPIENT_PHONE', 'Test Recipient Phone', '', 'Recipient used by isolated/test sends.', 'text'],
@@ -245,9 +274,13 @@ const ConfigurationService = (() => {
                     keyColumn: startColumn + 2
                 });
             });
+            // Preserve this existing spacer row. The left panel may use it for
+            // a display-only summary, but it never receives a backend key.
             rows.push(['', '', '']);
+            return rows.length + 1;
         };
 
+        const leftSummaryRows = [];
         SECTIONS.slice(0, 2).forEach(section => {
             const visible = section.settings.filter(setting =>
                 setting[4] === 'actionScheduler' || LEFT_VISIBLE_KEYS.has(setting[0])
@@ -255,7 +288,7 @@ const ConfigurationService = (() => {
             const hidden = section.settings.filter(setting =>
                 setting[0] && setting[4] !== 'actionScheduler' && !LEFT_VISIBLE_KEYS.has(setting[0])
             );
-            appendSection(section, visible, leftRows, START_COLUMN);
+            leftSummaryRows.push(appendSection(section, visible, leftRows, START_COLUMN));
             hiddenSettings.push(...hidden);
         });
         SECTIONS.slice(2).forEach(section => appendSection(section, section.settings, rightRows, RIGHT_START_COLUMN));
@@ -273,25 +306,57 @@ const ConfigurationService = (() => {
             .breakApart().clearContent().clearFormat().clearDataValidations().clearNote();
         sheet.getRange(1, START_COLUMN, 1, 6).merge()
             .setBackground('#17324d').setFontColor('#ffffff').setFontWeight('bold')
-            .setFontSize(13).setHorizontalAlignment('center').setValue('SYSTEM CONFIGURATION & CONTROLS');
+            .setFontSize(12).setHorizontalAlignment('center').setValue('SYSTEM CONFIGURATION & CONTROLS');
         if (leftRows.length) sheet.getRange(2, START_COLUMN, leftRows.length, 3).setValues(leftRows);
         if (rightRows.length) sheet.getRange(2, RIGHT_START_COLUMN, rightRows.length, 3).setValues(rightRows);
         sheet.getRange(STORAGE_START_ROW, START_COLUMN, hiddenRows.length, 3).setValues(hiddenRows);
         sheet.hideRows(STORAGE_START_ROW, hiddenRows.length);
 
+        // These summaries occupy the same spacer rows used by the prior layout.
+        // They are display-only: E/H stay blank, so neither configuration
+        // repository treats them as storage records.
+        const schedulerSummaryRow = leftSummaryRows[0];
+        const queueSummaryRow = leftSummaryRows[1];
+        const schedulerSummaryFormula =
+            '=IF(AND(IFERROR(INDEX($D:$D,MATCH("SCHEDULER_TRIGGER_DAILY_COUNT",$E:$E,0)),0)=1,' +
+            'IFERROR(INDEX($D:$D,MATCH("SCHEDULER_TRIGGER_WORKFLOW_COUNT",$E:$E,0)),0)=1,' +
+            'IFERROR(INDEX($D:$D,MATCH("SCHEDULER_TRIGGER_LEGACY_COUNT",$E:$E,0)),0)=0),' +
+            '"ACTIVE","CHECK REQUIRED")&" | Configured "&' +
+            'IFERROR(TEXT(INDEX($D:$D,MATCH("Scheduler_Time",$E:$E,0)),"hh:mm AM/PM"),' +
+            'INDEX($D:$D,MATCH("Scheduler_Time",$E:$E,0)))';
+        const queueSummaryFormula =
+            '="Queue: "&IFERROR(INDEX($G:$G,MATCH("Sender_Status",$H:$H,0)),"UNKNOWN")&' +
+            '" | Sent: "&IFERROR(INDEX($G:$G,MATCH("Messages_Sent_Today",$H:$H,0)),0)&' +
+            '" | Failed: "&IFERROR(INDEX($G:$G,MATCH("Messages_Failed_Today",$H:$H,0)),0)';
+        sheet.getRange(schedulerSummaryRow, START_COLUMN).setValue('Scheduler Status / Configured Run');
+        sheet.getRange(schedulerSummaryRow, VALUE_COLUMN).setFormula(schedulerSummaryFormula);
+        sheet.getRange(queueSummaryRow, START_COLUMN).setValue('Queue Status / Today');
+        sheet.getRange(queueSummaryRow, VALUE_COLUMN).setFormula(queueSummaryFormula);
+
         const editableRanges = [];
         const statusRows = [];
+        const keyLocations = {};
         metadata.forEach(item => {
             if (item.kind === 'section') {
                 sheet.getRange(item.row, item.startColumn, 1, 3).merge()
-                    .setBackground(item.color).setFontColor('#ffffff').setFontWeight('bold');
+                    .setBackground(item.color).setFontColor('#ffffff').setFontWeight('bold')
+                    .setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
+                sheet.setRowHeight(item.row, 31);
                 return;
             }
             const labelCell = sheet.getRange(item.row, item.startColumn);
             const valueCell = sheet.getRange(item.row, item.valueColumn);
             const keyCell = sheet.getRange(item.row, item.keyColumn);
-            labelCell.setFontWeight('bold').setBackground('#f4f7f9');
-            keyCell.setFontColor('#8a939b').setFontSize(8).setBackground('#f8f9fa');
+            if (item.key) keyLocations[item.key] = item;
+            labelCell.setFontWeight('normal').setFontSize(8).setBackground('#f7f9fb').setFontColor('#4f5b66')
+                .setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
+            valueCell.setFontSize(8).setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
+            keyCell.setFontColor('#c1c7cd').setFontSize(6).setBackground('#fafbfc')
+                .setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
+            if (PRIMARY_OPERATOR_KEYS.has(item.key) || item.type === 'actionButton' || item.type === 'actionScheduler') {
+                labelCell.setFontWeight('bold').setFontColor('#263746');
+                valueCell.setFontWeight('bold');
+            }
             valueCell.setNote(item.description || '');
             if (item.type === 'toggle' || item.type === 'statusToggle' || item.type === 'actionScheduler') valueCell.insertCheckboxes();
             if (item.type === 'list' || item.type === 'statusList') {
@@ -319,29 +384,59 @@ const ConfigurationService = (() => {
                 item.type === 'technicalStatus' || item.type === 'verifiedTime' ||
                 item.type === 'timestamp' || item.type === 'countStatus') {
                 valueCell.setBackground('#f1f3f4').setFontColor('#59636e');
-                statusRows.push({ row: item.row, valueColumn: item.valueColumn });
+                statusRows.push({ row: item.row, valueColumn: item.valueColumn, key: item.key });
                 if (NODE_WRITABLE_KEYS.has(item.key)) editableRanges.push(valueCell);
             } else {
                 editableRanges.push(valueCell);
             }
-            if (item.type === 'statusList') statusRows.push({ row: item.row, valueColumn: item.valueColumn });
+            if (item.type === 'statusList') statusRows.push({ row: item.row, valueColumn: item.valueColumn, key: item.key });
+            if (item.type === 'actionButton') statusRows.push({ row: item.row, valueColumn: item.valueColumn, key: item.key });
             if (item.type === 'technical' || item.type === 'technicalStatus') {
-                labelCell.setFontColor('#6f7780').setFontWeight('normal');
-                valueCell.setFontColor('#6f7780').setFontSize(9);
+                labelCell.setFontColor('#aeb6bd').setFontWeight('normal').setFontSize(7);
+                valueCell.setFontColor('#aeb6bd').setFontSize(7);
             }
         });
 
-        sheet.setColumnWidth(START_COLUMN, 205);
-        sheet.setColumnWidth(VALUE_COLUMN, 135);
-        sheet.setColumnWidth(KEY_COLUMN, 105);
-        sheet.setColumnWidth(RIGHT_START_COLUMN, 220);
-        sheet.setColumnWidth(RIGHT_VALUE_COLUMN, 170);
-        sheet.setColumnWidth(RIGHT_KEY_COLUMN, 145);
+        const styleSummaryRow = row => {
+            sheet.getRange(row, VALUE_COLUMN, 1, 2).merge();
+            sheet.getRange(row, START_COLUMN, 1, 3)
+                .setBackground('#eaf1f6').setFontColor('#24465b').setFontWeight('bold')
+                .setBorder(true, true, true, true, false, false, '#c8d7e1', SpreadsheetApp.BorderStyle.SOLID);
+            sheet.getRange(row, VALUE_COLUMN).setHorizontalAlignment('center').setFontSize(7)
+                .setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
+            sheet.setRowHeight(row, 31);
+        };
+        styleSummaryRow(schedulerSummaryRow);
+        styleSummaryRow(queueSummaryRow);
+
+        sheet.setColumnWidth(START_COLUMN, 229);
+        sheet.setColumnWidth(VALUE_COLUMN, 125);
+        sheet.setColumnWidth(KEY_COLUMN, 28);
+        sheet.setColumnWidth(RIGHT_START_COLUMN, 159);
+        sheet.setColumnWidth(RIGHT_VALUE_COLUMN, 137);
+        sheet.setColumnWidth(RIGHT_KEY_COLUMN, 28);
+        sheet.showColumns(START_COLUMN, 6);
+        sheet.hideColumns(KEY_COLUMN);
+        sheet.hideColumns(RIGHT_KEY_COLUMN);
         const visibleRows = Math.max(leftRows.length, rightRows.length) + 1;
-        sheet.setRowHeights(1, visibleRows, 24);
-        sheet.getRange(1, START_COLUMN, visibleRows, 6).setVerticalAlignment('middle').setWrap(true);
+        sheet.setRowHeightsForced(1, visibleRows, 31);
+        sheet.setRowHeight(1, 31);
+        sheet.getRange(1, START_COLUMN, visibleRows, 6)
+            .setFontFamily('Arial').setVerticalAlignment('middle')
+            .setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
         sheet.getRange(1, VALUE_COLUMN, visibleRows, 1).setHorizontalAlignment('center');
         sheet.getRange(1, RIGHT_VALUE_COLUMN, visibleRows, 1).setHorizontalAlignment('center');
+        sheet.getRange(2, START_COLUMN, leftRows.length, 3)
+            .setBorder(true, true, true, true, true, true, '#d9e2ea', SpreadsheetApp.BorderStyle.SOLID);
+        sheet.getRange(2, RIGHT_START_COLUMN, rightRows.length, 3)
+            .setBorder(true, true, true, true, true, true, '#d9e2ea', SpreadsheetApp.BorderStyle.SOLID);
+        sheet.setFrozenRows(1);
+        sheet.setHiddenGridlines(true);
+
+        if (keyLocations.Scheduler_Time) {
+            sheet.getRange(keyLocations.Scheduler_Time.row, keyLocations.Scheduler_Time.valueColumn)
+                .setFontSize(10).setBackground('#e8f0fe').setFontColor('#174ea6');
+        }
 
         const existingRules = sheet.getConditionalFormatRules().filter(rule =>
             !rule.getRanges().some(range => range.getColumn() <= RIGHT_KEY_COLUMN && range.getLastColumn() >= START_COLUMN)
@@ -351,15 +446,73 @@ const ConfigurationService = (() => {
             existingRules.push(
                 SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo('RUNNING').setBackground('#d9ead3').setFontColor('#274e13').setRanges(ranges).build(),
                 SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo('ACTIVE').setBackground('#d9ead3').setFontColor('#274e13').setRanges(ranges).build(),
-                SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo('COUNTDOWN').setBackground('#fff2cc').setFontColor('#7f6000').setRanges(ranges).build(),
-                SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo('STOP').setBackground('#fce8e6').setFontColor('#c5221f').setRanges(ranges).build(),
-                SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo('WAITING').setBackground('#e8f0fe').setFontColor('#174ea6').setRanges(ranges).build(),
+                SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo('OPERATIONAL').setBackground('#d9ead3').setFontColor('#274e13').setRanges(ranges).build(),
+                SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo('READY').setBackground('#d9ead3').setFontColor('#274e13').setRanges(ranges).build(),
+                SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo('PENDING').setBackground('#fff2cc').setFontColor('#7f6000').setRanges(ranges).build(),
+                SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo('WAITING').setBackground('#fff2cc').setFontColor('#7f6000').setRanges(ranges).build(),
                 SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo('PAUSED').setBackground('#fff2cc').setFontColor('#7f6000').setRanges(ranges).build(),
+                SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo('STOP').setBackground('#eef1f4').setFontColor('#59636e').setRanges(ranges).build(),
+                SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo('IDLE').setBackground('#eef1f4').setFontColor('#59636e').setRanges(ranges).build(),
                 SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo('FAILED').setBackground('#f4cccc').setFontColor('#990000').setRanges(ranges).build(),
-                SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo('ERROR').setBackground('#f4cccc').setFontColor('#990000').setRanges(ranges).build()
+                SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo('ERROR').setBackground('#f4cccc').setFontColor('#990000').setRanges(ranges).build(),
+                SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo('BLOCKED').setBackground('#f4cccc').setFontColor('#990000').setRanges(ranges).build(),
+                SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo('CHECK REQUIRED').setBackground('#f4cccc').setFontColor('#990000').setRanges(ranges).build()
             );
         }
+
+        const failedLocation = keyLocations.Messages_Failed_Today;
+        if (failedLocation) {
+            existingRules.push(
+                SpreadsheetApp.newConditionalFormatRule().whenNumberGreaterThan(0)
+                    .setBackground('#f4cccc').setFontColor('#990000').setBold(true)
+                    .setRanges([sheet.getRange(failedLocation.row, failedLocation.valueColumn)]).build(),
+                SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(
+                    '=IFERROR(INDEX($G:$G,MATCH("Messages_Failed_Today",$H:$H,0)),0)>0'
+                ).setBackground('#f4cccc').setFontColor('#990000')
+                    .setRanges([sheet.getRange(queueSummaryRow, START_COLUMN, 1, 3)]).build()
+            );
+        }
+
+        const phaseLocation = keyLocations.AUTO_SHUTDOWN_RUN_PHASE;
+        const activeLocation = keyLocations.AUTO_SHUTDOWN_RUN_ACTIVE;
+        const countdownLocation = keyLocations.AUTO_SHUTDOWN_PENDING_UNTIL;
+        if (phaseLocation && activeLocation && countdownLocation) {
+            const countdownFormula =
+                `=AND(UPPER($G$${phaseLocation.row})="COUNTDOWN",$G$${activeLocation.row}=TRUE,$G$${countdownLocation.row}<>"")`;
+            existingRules.push(
+                SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(countdownFormula)
+                    .setBackground('#f9cb9c').setFontColor('#783f04').setBold(true)
+                    .setRanges([
+                        sheet.getRange(phaseLocation.row, phaseLocation.valueColumn),
+                        sheet.getRange(countdownLocation.row, countdownLocation.valueColumn)
+                    ]).build()
+            );
+        }
+
+        const enabledLocation = keyLocations.AUTO_SHUTDOWN_ENABLED;
+        if (enabledLocation) {
+            const enabledCell = sheet.getRange(enabledLocation.row, enabledLocation.valueColumn);
+            existingRules.push(
+                SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(`=$G$${enabledLocation.row}=TRUE`)
+                    .setBackground('#d9ead3').setFontColor('#274e13').setBold(true)
+                    .setRanges([enabledCell]).build(),
+                SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(`=$G$${enabledLocation.row}=FALSE`)
+                    .setBackground('#eef1f4').setFontColor('#59636e')
+                    .setRanges([enabledCell]).build()
+            );
+        }
+
+        existingRules.push(
+            SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(`=LEFT($D$${schedulerSummaryRow},6)="ACTIVE"`)
+                .setBackground('#d9ead3').setFontColor('#274e13')
+                .setRanges([sheet.getRange(schedulerSummaryRow, START_COLUMN, 1, 3)]).build(),
+            SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(`=LEFT($D$${schedulerSummaryRow},5)="CHECK"`)
+                .setBackground('#f4cccc').setFontColor('#990000')
+                .setRanges([sheet.getRange(schedulerSummaryRow, START_COLUMN, 1, 3)]).build()
+        );
         sheet.setConditionalFormatRules(existingRules);
+
+        renderDraftPreview(sheet);
 
         try {
             let protection = sheet.getProtections(SpreadsheetApp.ProtectionType.SHEET)[0];
@@ -372,6 +525,55 @@ const ConfigurationService = (() => {
             console.log('Dashboard configuration protection note: ' + err);
         }
         return { sheet, rowCount: visibleRows, keyCount: Object.keys(readMap().map).length };
+    };
+
+    const DRAFT_1_PREVIEW = "আসসালামু আলাইকুম।\n\nপ্রিয় Md.Tanjil Islam,\n\n📢 সেলস পোস্টিং রিমাইন্ডার\n\n📅 রিপোর্টিং তারিখ: *27-Aug-2026*\n⏰ পোস্টিংয়ের শেষ সময়: *01-Sep-2026 10.00 থেকে সকাল 11.00 টা*\n\n📌 মোট বাকি এসআর: 1 জন\n\nবাকি থাকা এসআরদের তালিকা:\n\n• TR1942 - Mohammad Shahid Ullah\n\nঅনুগ্রহ করে নির্ধারিত সময়সীমার মধ্যে উপরের এসআরদের সেলস পোস্টিং সম্পন্ন করুন।\n\n⚠️ কোনো এসআর Close হয়ে থাকলে অনুগ্রহ করে সংশ্লিষ্ট গ্রুপে জানাবেন।\n\nℹ️ যদি ইতোমধ্যে সেলস পোস্টিং সম্পন্ন হয়ে থাকে, তাহলে অনুগ্রহ করে এই বার্তাটি উপেক্ষা করুন।\n\nধন্যবাদ।";
+
+    const DRAFT_2_PREVIEW = "আসসালামু আলাইকুম।\n\nপ্রিয় Md.Tanjil Islam,\n\n📢 সেলস পোস্টিং রিমাইন্ডার\n\n📅 রিপোর্টিং তারিখ: 27-Aug-2026\n\n📌 মোট বাকি এসআর: 1 জন\n\nবাকি থাকা এসআরদের তালিকা:\n\n• TR1942 - Mohammad Shahid Ullah\n\nঅনুগ্রহ করে নির্ধারিত সময়সীমার মধ্যে উপরের এসআরদের সেলস পোস্টিং সম্পন্ন করুন।\n\n⚠️ কোনো এসআর Close হয়ে থাকলে অনুগ্রহ করে সংশ্লিষ্ট গ্রুপে জানাবেন।\n\nℹ️ যদি ইতোমধ্যে সেলস পোস্টিং সম্পন্ন হয়ে থাকে, তাহলে অনুগ্রহ করে এই বার্তাটি উপেক্ষা করুন।\n\nধন্যবাদ।";
+
+    const renderDraftPreview = sheet => {
+        try {
+            if (!sheet) return;
+            sheet.setColumnWidth(9, 16); // Column I spacer
+            sheet.setColumnWidth(10, 210); // Column J
+            sheet.setColumnWidth(11, 210); // Column K
+            sheet.showColumns(9, 3);
+
+            // J5:K5 Header (Merged)
+            const headerRange = sheet.getRange('J5:K5');
+            headerRange.breakApart();
+            headerRange.merge();
+            headerRange.setValue('MESSAGE DRAFT LIVE PREVIEW')
+                .setBackground('#17324d')
+                .setFontColor('#ffffff')
+                .setFontWeight('bold')
+                .setFontSize(9)
+                .setHorizontalAlignment('center')
+                .setVerticalAlignment('middle');
+            sheet.setRowHeight(5, 26);
+
+            // J6:K24 Preview Area (Merged across J6:K6 to J24:K24)
+            const previewRange = sheet.getRange('J6:K24');
+            previewRange.breakApart();
+            previewRange.merge();
+
+            const formula = '=IF(OR(INDEX($D:$D,MATCH("MESSAGE_DRAFT",$E:$E,0))="STANDARD",INDEX($D:$D,MATCH("MESSAGE_DRAFT",$E:$E,0))="DRAFT_2",INDEX($D:$D,MATCH("MESSAGE_DRAFT",$E:$E,0))="DRAFT 2"),"' +
+                DRAFT_2_PREVIEW.replace(/"/g, '""') + '","' +
+                DRAFT_1_PREVIEW.replace(/"/g, '""') + '")';
+
+            previewRange.setFormula(formula)
+                .setBackground('#ffffff')
+                .setFontColor('#202124')
+                .setFontFamily('Arial')
+                .setFontSize(8.5)
+                .setVerticalAlignment('top')
+                .setHorizontalAlignment('left')
+                .setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
+
+            sheet.getRange('J5:K24').setBorder(true, true, true, true, true, true, '#c8d7e1', SpreadsheetApp.BorderStyle.SOLID);
+        } catch (e) {
+            console.log('Error rendering draft preview in J6:K24: ' + e);
+        }
     };
 
     const readLegacySettings = legacySheet => {
@@ -455,6 +657,7 @@ const ConfigurationService = (() => {
         updateSettings,
         ensureDefaults,
         ensureDashboardConfigurationArea,
+        renderDraftPreview,
         migrateFromLegacySettings,
         removeLegacySettingsAfterMigration
     };

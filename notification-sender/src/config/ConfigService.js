@@ -68,8 +68,10 @@ class ConfigService {
             autoClearSent: this.parseBoolean(rawMap['AUTO_CLEAR_SENT'], false),
             clearAfterDays: parseInt(rawMap['CLEAR_AFTER_DAYS'], 10) || 10,
             systemStatus: String(rawMap['SYSTEM_STATUS'] || 'STOP').trim().toUpperCase(),
+            dryRun: this.parseBoolean(rawMap['Dry_Run'] !== undefined ? rawMap['Dry_Run'] : rawMap['DRY_RUN'], false),
             senderMode: String(rawMap['SENDER_MODE'] || 'PRODUCTION').trim().toUpperCase(),
-            testMode: this.parseBoolean(rawMap['TEST_MODE'], false),
+            testMode: this.parseBoolean(rawMap['TEST_MODE'], false) || String(rawMap['SENDER_MODE'] || '').trim().toUpperCase() === 'TEST',
+            overridePhone: String(rawMap['OVERRIDE_PHONE'] || rawMap['TEST_RECIPIENT_PHONE'] || '').trim(),
             senderStatus: String(rawMap['Sender_Status'] || '').trim(),
             autoShutdownEnabled: this.parseBoolean(rawMap['AUTO_SHUTDOWN_ENABLED'], false),
             autoShutdownDelayMinutes: parseInt(rawMap['AUTO_SHUTDOWN_DELAY_MINUTES'], 10) || 12,
@@ -86,7 +88,7 @@ class ConfigService {
             telegramChatId: String(rawMap['TELEGRAM_CHAT_ID'] || '').trim(),
             whatsappSessionName: String(rawMap['WHATSAPP_SESSION_NAME'] || 'production').trim(),
             browserPath: String(rawMap['BROWSER_PATH'] || rawMap['PUPPETEER_EXECUTABLE_PATH'] || process.env.BROWSER_PATH || process.env.PUPPETEER_EXECUTABLE_PATH || '').trim(),
-            testRecipientPhone: String(rawMap['TEST_RECIPIENT_PHONE'] || rawMap['TEST_PHONE'] || rawMap['RECIPIENT_PHONE'] || '').trim(),
+            testRecipientPhone: String(rawMap['TEST_RECIPIENT_PHONE'] || rawMap['OVERRIDE_PHONE'] || rawMap['TEST_PHONE'] || rawMap['RECIPIENT_PHONE'] || '').trim(),
             testMessage: String(rawMap['TEST_MESSAGE'] || 'Hello Masum\nThis is the first WhatsApp Web integration test.\nNotification Sender is connected successfully.').trim()
         };
 
@@ -128,7 +130,11 @@ class ConfigService {
             executablePath: this.runtimeConfig.browserPath,
             telegramBotToken: this.runtimeConfig.telegramBotToken,
             telegramChatId: this.runtimeConfig.telegramChatId,
+            dryRun: this.runtimeConfig.dryRun,
             testMode: this.runtimeConfig.testMode,
+            testRecipientPhone: this.runtimeConfig.testRecipientPhone,
+            overridePhone: this.runtimeConfig.overridePhone,
+            senderMode: this.runtimeConfig.senderMode,
             providerName: name
         };
     }

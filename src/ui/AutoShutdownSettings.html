@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    body { font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; margin: 15px; color: #333; background: #fafafa; }
+    .container { display: flex; flex-direction: column; gap: 12px; align-items: center; }
+    .toggle { display: flex; align-items: center; gap: 8px; width: 100%; justify-content: space-between; }
+    input { width: 76px; padding: 6px 8px; border: 1px solid #c4c7c5; border-radius: 5px; }
+    button { padding: 8px 16px; border: none; border-radius: 6px; background: #1a73e8; color: #fff; cursor: pointer; }
+    button:hover { background: #1557b0; }
+    .status { font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="toggle">
+      <label for="shutdownToggle">Auto PC Shutdown:</label>
+      <select id="shutdownToggle">
+        <option value="false">OFF</option>
+        <option value="true">ON</option>
+      </select>
+    </div>
+    <div class="toggle">
+      <label for="delayMinutes">Shutdown Delay:</label>
+      <span><input id="delayMinutes" type="number" min="1" max="120" step="1" value="12"> minutes</span>
+    </div>
+    <div>
+      <button onclick="saveSettings()">Save</button>
+      <button onclick="google.script.host.close()">Cancel</button>
+    </div>
+  </div>
+  <script>
+    function init() {
+      google.script.run.withSuccessHandler(function(enabled) {
+        document.getElementById('shutdownToggle').value = enabled ? 'true' : 'false';
+      }).getAutoShutdownEnabled();
+      google.script.run.withSuccessHandler(function(minutes) {
+        document.getElementById('delayMinutes').value = minutes;
+      }).getAutoShutdownDelay();
+    }
+
+    function saveSettings() {
+      const enabled = document.getElementById('shutdownToggle').value === 'true';
+      const delay = Number(document.getElementById('delayMinutes').value);
+      google.script.run
+        .withSuccessHandler(function() {
+          google.script.run
+            .withSuccessHandler(function() { google.script.host.close(); })
+            .withFailureHandler(function(err) { alert('Delay was not saved: ' + err.message); })
+            .saveAutoShutdownDelay(delay);
+        })
+        .withFailureHandler(function(err) { alert('Auto Shutdown setting was not saved: ' + err.message); })
+        .saveAutoShutdownEnabled(enabled);
+    }
+
+    window.onload = init;
+  </script>
+</body>
+</html>

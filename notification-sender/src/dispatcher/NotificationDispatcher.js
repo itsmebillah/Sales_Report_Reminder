@@ -23,7 +23,7 @@ class NotificationDispatcher {
             return {
                 success: false,
                 skipped: true,
-                reason: `Provider ${targetProviderName} is disabled in dynamic Settings.`
+                reason: `Provider ${targetProviderName} is disabled in Dashboard configuration.`
             };
         }
 

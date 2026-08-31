@@ -18,6 +18,7 @@ function onOpen(e) {
           .addItem('📋  Copy Sales Data', 'copyData')
           .addSeparator()
           .addItem('Run Daily Reminders', 'processDailyReminders')
+          .addItem('⚡ Execute Scheduled Workflow (With Auto Shutdown)', 'runScheduledWorkflowManually')
           .addSeparator()
           .addItem('▶  Start Notification Sender', 'startNotificationSender')
           .addItem('⏹  Stop Notification Sender', 'stopNotificationSender')
@@ -27,6 +28,7 @@ function onOpen(e) {
           .addSeparator()
           .addItem('📊  Sender Status', 'showSenderStatus')
           .addItem('📈  System Dashboard', 'openSystemDashboard')
+          .addItem('🔄  Refresh Dashboard', 'refreshDashboardNow')
           .addItem('🖨️ Print Pending TSO Report', 'printPendingTsoReport')
           .addSeparator()
           .addItem('Sync Attendance Now', 'syncAttendanceNow')
@@ -70,6 +72,10 @@ function onEdit(e) {
         } else if (label === 'Open Auto Shutdown Control' && action === 'OPEN CONTROL') {
             e.range.setValue('READY');
             openAutoShutdownSettings();
+        } else if (label === 'Reminder Message Draft' || label === 'MESSAGE_DRAFT') {
+            if (typeof ConfigurationService !== 'undefined' && ConfigurationService.renderDraftPreview) {
+                ConfigurationService.renderDraftPreview(e.range.getSheet());
+            }
         }
     } catch (err) {
         console.log('Dashboard control action skipped: ' + err);
@@ -156,6 +162,14 @@ function runScheduledDailyWorkflow(e) {
         console.log('[DAILY WORKFLOW] Daily Reminder generation FAILED — sender and Auto Shutdown remain stopped: ' + err.message);
         throw err;
     }
+}
+
+/**
+ * Manual menu trigger for running the exact scheduled workflow with Auto Shutdown enabled.
+ */
+function runScheduledWorkflowManually() {
+    const fakeTriggerEvent = { triggerUid: 'manual-clock-trigger-' + Utilities.getUuid() };
+    return runScheduledDailyWorkflow(fakeTriggerEvent);
 }
 
 /**
@@ -427,10 +441,27 @@ function clearCompletedQueue() {
  * Opens System Dashboard.
  */
 function openSystemDashboard() {
-    if (typeof DashboardService !== 'undefined' && DashboardService.openDashboard) {
-        DashboardService.openDashboard();
+    if (typeof DashboardService !== 'undefined') {
+        if (DashboardService.refreshDashboard) {
+            DashboardService.refreshDashboard();
+        }
+        if (DashboardService.openDashboard) {
+            DashboardService.openDashboard();
+        }
     } else {
         SpreadsheetApp.getUi().alert('System Dashboard', 'DashboardService is running.', SpreadsheetApp.getUi().ButtonSet.OK);
+    }
+}
+
+/**
+ * Refreshes the Dashboard sheet layout and operational metrics manually.
+ */
+function refreshDashboardNow() {
+    try {
+        DashboardService.refreshDashboard();
+        SpreadsheetApp.getUi().alert('Dashboard Refreshed', 'Dashboard layout and operational metrics refreshed successfully.', SpreadsheetApp.getUi().ButtonSet.OK);
+    } catch (err) {
+        SpreadsheetApp.getUi().alert('Error refreshing dashboard: ' + err.message);
     }
 }
 

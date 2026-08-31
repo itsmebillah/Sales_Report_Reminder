@@ -578,6 +578,7 @@ const AttendanceService = (() => {
             currentMonth: "N/A",
             todayPresent: 0,
             todayAbsent: 0,
+            totalCells: 0,
             overallAttendancePct: 0
         };
     };

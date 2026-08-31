@@ -32,7 +32,7 @@ class WhatsAppWebProvider {
      * @returns {string} Resolved executable path
      */
     getBrowserExecutablePath(customPath) {
-        // 1. Check explicit parameter, Settings BROWSER_PATH, or environment variables
+        // 1. Check explicit parameter, Dashboard BROWSER_PATH, or environment variables
         const envPath = customPath || process.env.BROWSER_PATH || process.env.PUPPETEER_EXECUTABLE_PATH || process.env.BRAVE_PATH || process.env.CHROME_PATH;
         if (envPath) {
             if (fs.existsSync(envPath)) {

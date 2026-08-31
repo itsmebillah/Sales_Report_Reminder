@@ -172,19 +172,25 @@ const DashboardService = (() => {
                 ? (attMetrics.overallAttendancePct * 100).toFixed(1) + "%"
                 : (existingValues["Overall Monthly Attendance %"] || "0.0%");
 
+            const attTotalCells = attMetrics.totalCells !== undefined
+                ? attMetrics.totalCells
+                : (attMetrics.todayPresent || 0) + (attMetrics.todayAbsent || 0);
+
+            const procTotalCells = summary.totalCellKPI !== undefined
+                ? summary.totalCellKPI
+                : (getNum("Total Present SR", summary.totalPresent, 0) + getNum("Total Pending SR", summary.totalPending, 0));
+
             // Operational Dashboard Layout Matrix
             const rows = [
                 ["SALES AUTOMATION — OPERATIONAL DASHBOARD", ""],
                 ["Last Refreshed Timestamp", nowStr],
                 ["Overall System Status", getVal("Overall System Status", summary.success !== undefined ? (summary.success !== false ? "OPERATIONAL" : "DEGRADED") : undefined, "OPERATIONAL")],
-                ["", ""],
                 ["SYSTEM CONFIGURATION & STATUS", ""],
                 ["WhatsApp Integration Enabled", isWhatsappEnabled ? "YES" : "NO"],
                 ["Execution Mode", execMode],
                 ["Scheduler Status", schedulerStatus],
                 ["Configured Timezone", tz],
                 ["Data Retention Policy", `Reminder_System: ${reminderRetention} Days | Logs: Append-only history`],
-                ["", ""],
                 [`SALES ATTENDANCE MODULE SUMMARY (${attMetrics.currentMonth || existingValues["Current Attendance Month"] || 'Current Month'})`, ""],
                 ["Current Attendance Month", getVal("Current Attendance Month", attMetrics.currentMonth, "N/A")],
                 ["Today's Present SRs", getNum("Today's Present SRs", attMetrics.todayPresent, 0)],
@@ -193,21 +199,19 @@ const DashboardService = (() => {
                 ["Last Attendance Sync Time", lastSyncTime],
                 ["Last Archive Month", archiveStats.lastArchiveMonth],
                 ["Total Archived Months", archiveStats.totalArchivedMonths],
-                ["", ""],
                 [`TODAY'S PROCESSING SUMMARY (${summary.targetDate || existingValues["Today's Processing Summary Date"] || 'Target Date'})`, ""],
                 ["Total SR Evaluated", getNum("Total SR Evaluated", summary.totalSREvaluated, 0)],
                 ["Total Present SR", getNum("Total Present SR", summary.totalPresent, 0)],
                 ["Total Pending SR", getNum("Total Pending SR", summary.totalPending, 0)],
+                ["Total Sales KPI", getNum("Total Sales KPI", procTotalCells, 0)],
                 ["Total TSO Messages", getNum("Total TSO Messages", summary.totalTSOMessages, 0)],
                 ["WhatsApp Messages Sent", getNum("WhatsApp Messages Sent", summary.sentCount, 0)],
                 ["WhatsApp Messages Failed", getNum("WhatsApp Messages Failed", summary.failedCount, 0)],
                 ["WhatsApp Messages Skipped", getNum("WhatsApp Messages Skipped", summary.skippedCount, 0)],
-                ["", ""],
                 ["STAGE-WISE VALIDATION SUMMARY", ""],
                 ["Stage 1: Hierarchy Missing (HIERARCHY_NOT_FOUND)", getNum("Stage 1: Hierarchy Missing (HIERARCHY_NOT_FOUND)", summary.hierarchyMissingCount, 0)],
                 ["Stage 2: Contact List Missing (CONTACT_NOT_FOUND)", getNum("Stage 2: Contact List Missing (CONTACT_NOT_FOUND)", summary.contactMissingCount, 0)],
                 ["Stage 3: Phone Number Missing (PHONE_NOT_FOUND)", getNum("Stage 3: Phone Number Missing (PHONE_NOT_FOUND)", summary.phoneMissingCount, 0)],
-                ["", ""],
                 ["EXECUTION & RETENTION TIMELINE", ""],
                 ["Last Run Timestamp", getVal("Last Run Timestamp", nowStr, nowStr)],
                 ["Estimated Next Scheduled Run", getVal("Estimated Next Scheduled Run", nextRunStr, nextRunStr)],
@@ -225,20 +229,44 @@ const DashboardService = (() => {
             sheet.getRange(1, 1, rows.length, 2).setValues(rows);
             sheet.getRange(1, 2, rows.length, 1).setNumberFormat('@'); // Format value column B as plain text
 
-            // Styling & Formatting
-            sheet.getRange(1, 1, 1, 2).merge().setFontWeight('bold').setFontSize(13).setBackground('#1b365d').setFontColor('#ffffff');
-            sheet.getRange(5, 1, 1, 2).merge().setFontWeight('bold').setBackground('#4a6b82').setFontColor('#ffffff');
-            sheet.getRange(12, 1, 1, 2).merge().setFontWeight('bold').setBackground('#4a6b82').setFontColor('#ffffff');
-            sheet.getRange(21, 1, 1, 2).merge().setFontWeight('bold').setBackground('#4a6b82').setFontColor('#ffffff');
-            sheet.getRange(30, 1, 1, 2).merge().setFontWeight('bold').setBackground('#4a6b82').setFontColor('#ffffff');
-            sheet.getRange(35, 1, 1, 2).merge().setFontWeight('bold').setBackground('#4a6b82').setFontColor('#ffffff');
+            // Styling & Formatting. Values, formulas, row order, and report
+            // calculations above remain unchanged; this is presentation only.
+            const reportHeaderColor = '#17324d';
+            const reportSectionColor = '#365f78';
+            const reportBorderColor = '#d9e2ea';
+            const sectionRows = [4, 10, 18, 27, 31];
+            const screenFitLastRow = 36;
+
+            sheet.getRange(1, 1, rows.length, 2)
+                .setFontFamily('Arial')
+                .setFontSize(8)
+                .setVerticalAlignment('middle')
+                .setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
+            sheet.setRowHeightsForced(1, rows.length, 31);
+            sheet.getRange(2, 1, rows.length - 1, 1).setBackground('#f7f9fb');
+
+            sheet.getRange(1, 1, 1, 2).merge()
+                .setFontWeight('bold').setFontSize(12)
+                .setBackground(reportHeaderColor).setFontColor('#ffffff')
+                .setHorizontalAlignment('left');
+            sheet.setRowHeight(1, 31);
+            sectionRows.forEach(row => {
+                sheet.getRange(row, 1, 1, 2).merge()
+                    .setFontWeight('bold').setFontSize(8)
+                    .setBackground(reportSectionColor).setFontColor('#ffffff')
+                    .setHorizontalAlignment('left');
+                sheet.setRowHeight(row, 31);
+            });
+
+            sheet.getRange(2, 1, rows.length - 1, 2)
+                .setBorder(true, true, true, true, true, true, reportBorderColor, SpreadsheetApp.BorderStyle.SOLID);
 
             sheet.getRange(2, 1, 2, 1).setFontWeight('bold');
-            sheet.getRange(6, 1, 5, 1).setFontWeight('bold');
-            sheet.getRange(13, 1, 7, 1).setFontWeight('bold');
-            sheet.getRange(22, 1, 7, 1).setFontWeight('bold');
-            sheet.getRange(31, 1, 3, 1).setFontWeight('bold');
-            sheet.getRange(36, 1, 5, 1).setFontWeight('bold');
+            sheet.getRange(5, 1, 5, 1).setFontWeight('bold');
+            sheet.getRange(11, 1, 7, 1).setFontWeight('bold');
+            sheet.getRange(19, 1, 8, 1).setFontWeight('bold');
+            sheet.getRange(28, 1, 3, 1).setFontWeight('bold');
+            sheet.getRange(32, 1, 5, 1).setFontWeight('bold');
 
             // Highlight Overall System Status
             const statusCell = sheet.getRange(3, 2);
@@ -249,13 +277,47 @@ const DashboardService = (() => {
                 statusCell.setBackground('#f8d7da').setFontColor('#721c24').setFontWeight('bold');
             }
 
-            sheet.autoResizeColumns(1, 2);
-            sheet.setColumnWidth(1, 360);
-            sheet.setColumnWidth(2, 420);
-
+            // Keep the operator-critical report in the same 29-row viewport as
+            // the four control panels. Detail rows remain intact and can be
+            // unhidden when deeper validation/retention history is needed.
+            sheet.showRows(1, Math.min(screenFitLastRow, rows.length));
+            if (rows.length > screenFitLastRow) {
+                sheet.hideRows(screenFitLastRow + 1, rows.length - screenFitLastRow);
+            }
+            sheet.setColumnWidth(1, 300);
+            sheet.setColumnWidth(2, 310);
             // Build/refresh the single configuration control center without
             // changing any existing values.
             ConfigurationService.ensureDashboardConfigurationArea(sheet);
+
+            // BI Dashboard Total Sales KPI Card on J2:K3 merged range
+            const kpiHeaderRange = sheet.getRange("J2:K2");
+            const kpiValueRange = sheet.getRange("J3:K3");
+            const kpiFullRange = sheet.getRange("J2:K3");
+
+            kpiHeaderRange.breakApart().merge()
+                .setValue("TOTAL SALES KPI")
+                .setFontFamily("Arial")
+                .setFontSize(8)
+                .setFontWeight("bold")
+                .setBackground("#1e293b")
+                .setFontColor("#94a3b8")
+                .setHorizontalAlignment("center")
+                .setVerticalAlignment("middle");
+
+            kpiValueRange.breakApart().merge()
+                .setFormula("=Sales!N3")
+                .setFontFamily("Arial")
+                .setFontSize(16)
+                .setFontWeight("bold")
+                .setBackground("#0f172a")
+                .setFontColor("#38bdf8")
+                .setHorizontalAlignment("center")
+                .setVerticalAlignment("middle");
+
+            kpiFullRange.setBorder(true, true, true, true, true, true, "#334155", SpreadsheetApp.BorderStyle.SOLID);
+            sheet.setColumnWidth(10, 110);
+            sheet.setColumnWidth(11, 110);
 
             // Apply Protection to make Dashboard read-only except for spreadsheet owner/editors
             try {
