@@ -320,7 +320,7 @@ const DashboardService = (() => {
             // Today's Sales Entry Tracking Card on J4:K7
             const trackingHeaderRange = sheet.getRange("J4:K4");
             trackingHeaderRange.breakApart().merge()
-                .setValue("TODAY'S SALES TRACKING")
+                .setValue("TODAY'S SALES UPDATES")
                 .setFontFamily("Arial")
                 .setFontSize(8)
                 .setFontWeight("bold")
@@ -340,10 +340,10 @@ const DashboardService = (() => {
                 savedFirstVal = props.getProperty("TODAY_FIRST_SALES_VALUE") || "";
             } catch (e) {}
 
-            const j5Label = savedFirstTime ? `1st Sales (${savedFirstTime})` : "1st Sales (Initial)";
-            const j6Label = savedLastTime ? `Last Sales (${savedLastTime})` : "Last Sales (Current)";
+            const j5Label = savedFirstTime ? `1st Update (${savedFirstTime})` : "1st Update (Initial)";
+            const j6Label = savedLastTime ? `Last Update (${savedLastTime})` : "Last Update (Current)";
 
-            // J5: 1st Sales Label (with time)
+            // J5: 1st Update Label (with time)
             sheet.getRange("J5").setValue(j5Label)
                 .setFontFamily("Arial")
                 .setFontSize(8.5)

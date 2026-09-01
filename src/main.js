@@ -586,16 +586,16 @@ function copyData() {
         props.setProperty("TODAY_LAST_SALES_TIME", currentTimeStr);
         props.setProperty("TODAY_LAST_SALES_VALUE", String(currentSalesVal));
 
-        dashSheet.getRange("J5").setValue(`1st Sales (${currentTimeStr})`);
+        dashSheet.getRange("J5").setValue(`1st Update (${currentTimeStr})`);
         dashSheet.getRange("K5").setValue(currentSalesVal);
-        dashSheet.getRange("J6").setValue(`Last Sales (${currentTimeStr})`);
+        dashSheet.getRange("J6").setValue(`Last Update (${currentTimeStr})`);
       } else {
         // Subsequent copies today
         props.setProperty("TODAY_LAST_SALES_TIME", currentTimeStr);
         props.setProperty("TODAY_LAST_SALES_VALUE", String(currentSalesVal));
 
         const savedFirstTime = props.getProperty("TODAY_FIRST_SALES_TIME") || currentTimeStr;
-        dashSheet.getRange("J5").setValue(`1st Sales (${savedFirstTime})`);
+        dashSheet.getRange("J5").setValue(`1st Update (${savedFirstTime})`);
 
         const existingK5 = dashSheet.getRange("K5").getValue();
         if (existingK5 === "" || existingK5 === null || existingK5 === undefined || (typeof existingK5 === 'number' && isNaN(existingK5))) {
@@ -603,7 +603,7 @@ function copyData() {
           dashSheet.getRange("K5").setValue(savedFirstVal);
         }
 
-        dashSheet.getRange("J6").setValue(`Last Sales (${currentTimeStr})`);
+        dashSheet.getRange("J6").setValue(`Last Update (${currentTimeStr})`);
       }
     }
   } catch (snapErr) {
