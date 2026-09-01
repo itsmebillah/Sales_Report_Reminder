@@ -564,7 +564,7 @@ function copyData() {
   SpreadsheetApp.flush();
   syncAttendanceNow();
 
-  // Snapshot today's 1st sales and update Dashboard tracking with exact time
+  // Snapshot today's 1st sales, prev update, and last update tracking with exact time
   try {
     const tz = "Asia/Dhaka";
     const now = new Date();
@@ -583,14 +583,23 @@ function copyData() {
         props.setProperty("TODAY_FIRST_SALES_DATE", todayStr);
         props.setProperty("TODAY_FIRST_SALES_TIME", currentTimeStr);
         props.setProperty("TODAY_FIRST_SALES_VALUE", String(currentSalesVal));
+        props.setProperty("TODAY_PREV_SALES_TIME", currentTimeStr);
+        props.setProperty("TODAY_PREV_SALES_VALUE", String(currentSalesVal));
         props.setProperty("TODAY_LAST_SALES_TIME", currentTimeStr);
         props.setProperty("TODAY_LAST_SALES_VALUE", String(currentSalesVal));
 
         dashSheet.getRange("J5").setValue(`1st Update (${currentTimeStr})`);
         dashSheet.getRange("K5").setValue(currentSalesVal);
-        dashSheet.getRange("J6").setValue(`Last Update (${currentTimeStr})`);
+        dashSheet.getRange("J6").setValue(`Prev Update (${currentTimeStr})`);
+        dashSheet.getRange("K6").setValue(currentSalesVal);
+        dashSheet.getRange("J7").setValue(`Last Update (${currentTimeStr})`);
       } else {
-        // Subsequent copies today
+        // Subsequent copies today: shift existing LAST to PREV (2nd last)
+        const prevTime = props.getProperty("TODAY_LAST_SALES_TIME") || currentTimeStr;
+        const prevVal = parseFloat(props.getProperty("TODAY_LAST_SALES_VALUE")) || currentSalesVal;
+
+        props.setProperty("TODAY_PREV_SALES_TIME", prevTime);
+        props.setProperty("TODAY_PREV_SALES_VALUE", String(prevVal));
         props.setProperty("TODAY_LAST_SALES_TIME", currentTimeStr);
         props.setProperty("TODAY_LAST_SALES_VALUE", String(currentSalesVal));
 
@@ -603,7 +612,9 @@ function copyData() {
           dashSheet.getRange("K5").setValue(savedFirstVal);
         }
 
-        dashSheet.getRange("J6").setValue(`Last Update (${currentTimeStr})`);
+        dashSheet.getRange("J6").setValue(`Prev Update (${prevTime})`);
+        dashSheet.getRange("K6").setValue(prevVal);
+        dashSheet.getRange("J7").setValue(`Last Update (${currentTimeStr})`);
       }
     }
   } catch (snapErr) {

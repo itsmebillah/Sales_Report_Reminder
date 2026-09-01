@@ -317,7 +317,7 @@ const DashboardService = (() => {
 
             kpiFullRange.setBorder(true, true, true, true, true, true, "#334155", SpreadsheetApp.BorderStyle.SOLID);
 
-            // Today's Sales Entry Tracking Card on J4:K7
+            // Today's Sales Entry Tracking Card on J4:K9
             const trackingHeaderRange = sheet.getRange("J4:K4");
             trackingHeaderRange.breakApart().merge()
                 .setValue("TODAY'S SALES UPDATES")
@@ -331,17 +331,22 @@ const DashboardService = (() => {
             sheet.setRowHeight(4, 22);
 
             let savedFirstTime = "";
+            let savedPrevTime = "";
             let savedLastTime = "";
             let savedFirstVal = "";
+            let savedPrevVal = "";
             try {
                 const props = PropertiesService.getScriptProperties();
                 savedFirstTime = props.getProperty("TODAY_FIRST_SALES_TIME") || "";
+                savedPrevTime = props.getProperty("TODAY_PREV_SALES_TIME") || "";
                 savedLastTime = props.getProperty("TODAY_LAST_SALES_TIME") || "";
                 savedFirstVal = props.getProperty("TODAY_FIRST_SALES_VALUE") || "";
+                savedPrevVal = props.getProperty("TODAY_PREV_SALES_VALUE") || "";
             } catch (e) {}
 
             const j5Label = savedFirstTime ? `1st Update (${savedFirstTime})` : "1st Update (Initial)";
-            const j6Label = savedLastTime ? `Last Update (${savedLastTime})` : "Last Update (Current)";
+            const j6Label = savedPrevTime ? `Prev Update (${savedPrevTime})` : "Prev Update (2nd Last)";
+            const j7Label = savedLastTime ? `Last Update (${savedLastTime})` : "Last Update (Current)";
 
             // J5: 1st Update Label (with time)
             sheet.getRange("J5").setValue(j5Label)
@@ -373,7 +378,7 @@ const DashboardService = (() => {
                 .setVerticalAlignment("middle")
                 .setNumberFormat("#,##0.00");
 
-            // J6: Last Sales Label (with time)
+            // J6: Prev Update Label (with time)
             sheet.getRange("J6").setValue(j6Label)
                 .setFontFamily("Arial")
                 .setFontSize(8.5)
@@ -384,8 +389,40 @@ const DashboardService = (() => {
                 .setVerticalAlignment("middle");
             sheet.setRowHeight(6, 22);
 
-            // K6: Last Sales Formula pointing to J3
-            sheet.getRange("K6").setFormula("=J3")
+            // K6: Prev Sales Value
+            const k6Cell = sheet.getRange("K6");
+            const existingK6 = k6Cell.getValue();
+            if (existingK6 === "" || existingK6 === null || existingK6 === undefined) {
+                if (savedPrevVal !== "") {
+                    k6Cell.setValue(Number(savedPrevVal));
+                } else if (savedFirstVal !== "") {
+                    k6Cell.setValue(Number(savedFirstVal));
+                } else {
+                    k6Cell.setValue(0);
+                }
+            }
+            k6Cell.setFontFamily("Arial")
+                .setFontSize(9)
+                .setFontWeight("bold")
+                .setBackground("#ffffff")
+                .setFontColor("#0f172a")
+                .setHorizontalAlignment("right")
+                .setVerticalAlignment("middle")
+                .setNumberFormat("#,##0.00");
+
+            // J7: Last Update Label (with time)
+            sheet.getRange("J7").setValue(j7Label)
+                .setFontFamily("Arial")
+                .setFontSize(8.5)
+                .setFontWeight("bold")
+                .setBackground("#f8fafc")
+                .setFontColor("#475569")
+                .setHorizontalAlignment("left")
+                .setVerticalAlignment("middle");
+            sheet.setRowHeight(7, 22);
+
+            // K7: Last Sales Formula pointing to J3
+            sheet.getRange("K7").setFormula("=J3")
                 .setFontFamily("Arial")
                 .setFontSize(9)
                 .setFontWeight("bold")
@@ -395,8 +432,30 @@ const DashboardService = (() => {
                 .setVerticalAlignment("middle")
                 .setNumberFormat("#,##0.00");
 
-            // J7: Difference Label
-            sheet.getRange("J7").setValue("Today's Entry (Diff)")
+            // J8: Last Change (Diff) Label
+            sheet.getRange("J8").setValue("Last Change (Diff)")
+                .setFontFamily("Arial")
+                .setFontSize(8.5)
+                .setFontWeight("bold")
+                .setBackground("#eff6ff")
+                .setFontColor("#1d4ed8")
+                .setHorizontalAlignment("left")
+                .setVerticalAlignment("middle");
+            sheet.setRowHeight(8, 22);
+
+            // K8: Last Change Formula (K7 - K6)
+            sheet.getRange("K8").setFormula("=IF(ISNUMBER(K6),K7-K6,0)")
+                .setFontFamily("Arial")
+                .setFontSize(9.5)
+                .setFontWeight("bold")
+                .setBackground("#eff6ff")
+                .setFontColor("#2563eb")
+                .setHorizontalAlignment("right")
+                .setVerticalAlignment("middle")
+                .setNumberFormat("+#,##0.00;-#,##0.00;0.00");
+
+            // J9: Today's Total Entry (Diff) Label
+            sheet.getRange("J9").setValue("Today's Entry (Diff)")
                 .setFontFamily("Arial")
                 .setFontSize(8.5)
                 .setFontWeight("bold")
@@ -404,10 +463,10 @@ const DashboardService = (() => {
                 .setFontColor("#15803d")
                 .setHorizontalAlignment("left")
                 .setVerticalAlignment("middle");
-            sheet.setRowHeight(7, 22);
+            sheet.setRowHeight(9, 22);
 
-            // K7: Difference Formula
-            sheet.getRange("K7").setFormula("=IF(ISNUMBER(K5),K6-K5,0)")
+            // K9: Today's Total Entry Formula (K7 - K5)
+            sheet.getRange("K9").setFormula("=IF(ISNUMBER(K5),K7-K5,0)")
                 .setFontFamily("Arial")
                 .setFontSize(9.5)
                 .setFontWeight("bold")
@@ -417,7 +476,7 @@ const DashboardService = (() => {
                 .setVerticalAlignment("middle")
                 .setNumberFormat("+#,##0.00;-#,##0.00;0.00");
 
-            sheet.getRange("J4:K7").setBorder(true, true, true, true, true, true, "#cbd5e1", SpreadsheetApp.BorderStyle.SOLID);
+            sheet.getRange("J4:K9").setBorder(true, true, true, true, true, true, "#cbd5e1", SpreadsheetApp.BorderStyle.SOLID);
             sheet.setColumnWidth(10, 110);
             sheet.setColumnWidth(11, 110);
 
