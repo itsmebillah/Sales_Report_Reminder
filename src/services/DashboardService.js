@@ -330,8 +330,21 @@ const DashboardService = (() => {
                 .setVerticalAlignment("middle");
             sheet.setRowHeight(4, 22);
 
-            // J5: 1st Sales Label
-            sheet.getRange("J5").setValue("1st Sales (Initial)")
+            let savedFirstTime = "";
+            let savedLastTime = "";
+            let savedFirstVal = "";
+            try {
+                const props = PropertiesService.getScriptProperties();
+                savedFirstTime = props.getProperty("TODAY_FIRST_SALES_TIME") || "";
+                savedLastTime = props.getProperty("TODAY_LAST_SALES_TIME") || "";
+                savedFirstVal = props.getProperty("TODAY_FIRST_SALES_VALUE") || "";
+            } catch (e) {}
+
+            const j5Label = savedFirstTime ? `1st Sales (${savedFirstTime})` : "1st Sales (Initial)";
+            const j6Label = savedLastTime ? `Last Sales (${savedLastTime})` : "Last Sales (Current)";
+
+            // J5: 1st Sales Label (with time)
+            sheet.getRange("J5").setValue(j5Label)
                 .setFontFamily("Arial")
                 .setFontSize(8.5)
                 .setFontWeight("bold")
@@ -345,12 +358,8 @@ const DashboardService = (() => {
             const k5Cell = sheet.getRange("K5");
             const existingK5 = k5Cell.getValue();
             if (existingK5 === "" || existingK5 === null || existingK5 === undefined) {
-                let savedFirst = "";
-                try {
-                    savedFirst = PropertiesService.getScriptProperties().getProperty("TODAY_FIRST_SALES_VALUE") || "";
-                } catch (e) {}
-                if (savedFirst !== "") {
-                    k5Cell.setValue(Number(savedFirst));
+                if (savedFirstVal !== "") {
+                    k5Cell.setValue(Number(savedFirstVal));
                 } else {
                     k5Cell.setValue(0);
                 }
@@ -364,8 +373,8 @@ const DashboardService = (() => {
                 .setVerticalAlignment("middle")
                 .setNumberFormat("#,##0.00");
 
-            // J6: Last Sales Label
-            sheet.getRange("J6").setValue("Last Sales (Current)")
+            // J6: Last Sales Label (with time)
+            sheet.getRange("J6").setValue(j6Label)
                 .setFontFamily("Arial")
                 .setFontSize(8.5)
                 .setFontWeight("bold")

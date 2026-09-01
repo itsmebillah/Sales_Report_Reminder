@@ -564,10 +564,12 @@ function copyData() {
   SpreadsheetApp.flush();
   syncAttendanceNow();
 
-  // Snapshot today's 1st sales and update Dashboard tracking
+  // Snapshot today's 1st sales and update Dashboard tracking with exact time
   try {
     const tz = "Asia/Dhaka";
-    const todayStr = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
+    const now = new Date();
+    const todayStr = Utilities.formatDate(now, tz, "yyyy-MM-dd");
+    const currentTimeStr = Utilities.formatDate(now, tz, "hh:mm a");
     const props = PropertiesService.getScriptProperties();
     const storedDate = props.getProperty("TODAY_FIRST_SALES_DATE") || "";
 
@@ -579,15 +581,29 @@ function copyData() {
       if (storedDate !== todayStr) {
         // First sales copy of today
         props.setProperty("TODAY_FIRST_SALES_DATE", todayStr);
+        props.setProperty("TODAY_FIRST_SALES_TIME", currentTimeStr);
         props.setProperty("TODAY_FIRST_SALES_VALUE", String(currentSalesVal));
+        props.setProperty("TODAY_LAST_SALES_TIME", currentTimeStr);
+        props.setProperty("TODAY_LAST_SALES_VALUE", String(currentSalesVal));
+
+        dashSheet.getRange("J5").setValue(`1st Sales (${currentTimeStr})`);
         dashSheet.getRange("K5").setValue(currentSalesVal);
+        dashSheet.getRange("J6").setValue(`Last Sales (${currentTimeStr})`);
       } else {
-        // Subsequent copies today: ensure K5 still retains the first sales value
+        // Subsequent copies today
+        props.setProperty("TODAY_LAST_SALES_TIME", currentTimeStr);
+        props.setProperty("TODAY_LAST_SALES_VALUE", String(currentSalesVal));
+
+        const savedFirstTime = props.getProperty("TODAY_FIRST_SALES_TIME") || currentTimeStr;
+        dashSheet.getRange("J5").setValue(`1st Sales (${savedFirstTime})`);
+
         const existingK5 = dashSheet.getRange("K5").getValue();
         if (existingK5 === "" || existingK5 === null || existingK5 === undefined || (typeof existingK5 === 'number' && isNaN(existingK5))) {
-          const savedFirst = parseFloat(props.getProperty("TODAY_FIRST_SALES_VALUE")) || currentSalesVal;
-          dashSheet.getRange("K5").setValue(savedFirst);
+          const savedFirstVal = parseFloat(props.getProperty("TODAY_FIRST_SALES_VALUE")) || currentSalesVal;
+          dashSheet.getRange("K5").setValue(savedFirstVal);
         }
+
+        dashSheet.getRange("J6").setValue(`Last Sales (${currentTimeStr})`);
       }
     }
   } catch (snapErr) {
