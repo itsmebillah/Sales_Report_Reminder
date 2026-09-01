@@ -105,17 +105,26 @@ const WhatsAppService = (() => {
                 const countStr = messageOrParams[2] || '';
                 const srListStr = messageOrParams[3] || '';
                 const tz = config['Timezone'] || 'Asia/Dhaka';
+                const nextDayDate = typeof DateUtils !== 'undefined' && DateUtils.getNextDayDate
+                    ? DateUtils.getNextDayDate(new Date(), tz)
+                    : new Date(Date.now() + 86400000);
+                const formattedNextDayDate = typeof DateUtils !== 'undefined' && DateUtils.formatDate
+                    ? DateUtils.formatDate(nextDayDate, tz)
+                    : Utilities.formatDate(nextDayDate, tz, "dd-MMM-yyyy");
+                const withDeadlineText = `${formattedNextDayDate} 10.00 থেকে সকাল 11.00 টা`;
+
                 const todayDate = new Date();
                 const formattedTodayDate = typeof DateUtils !== 'undefined' && DateUtils.formatDate
                     ? DateUtils.formatDate(todayDate, tz)
                     : Utilities.formatDate(todayDate, tz, "dd-MMM-yyyy");
-                const deadlineText = `আজ (${formattedTodayDate}) সকাল 10.00 থেকে 11.00 টা`;
+                const standardDeadlineText = `আজ (${formattedTodayDate}) সকাল 10.00 থেকে 11.00 টা`;
+
                 const messageDraft = String(config['MESSAGE_DRAFT'] || config['REMINDER_MESSAGE_DRAFT'] || 'WITH_DEADLINE').toUpperCase().trim();
                 const isDraft2 = messageDraft === 'STANDARD' || messageDraft === 'DRAFT_2' || messageDraft === 'DRAFT 2';
                 if (isDraft2) {
-                    fallbackBodyText = `প্রিয় ${tsoName},\n\n📢 সেলস পোস্টিং রিমাইন্ডার\n\n📅 রিপোর্টিং তারিখ: ${dateStr}\n⏰ পোস্টিংয়ের শেষ সময়: ${deadlineText}\n\n📌 মোট বাকি এসআর: ${countStr} জন\n\nবাকি থাকা এসআরদের তালিকা:\n\n${srListStr}\n\nঅনুগ্রহ করে নির্ধারিত সময়সীমার মধ্যে উপরের এসআরদের সেলস পোস্টিং সম্পন্ন করুন।\n\nধন্যবাদ।`;
+                    fallbackBodyText = `প্রিয় ${tsoName},\n\n📢 সেলস পোস্টিং রিমাইন্ডার\n\n📅 রিপোর্টিং তারিখ: ${dateStr}\n⏰ পোস্টিংয়ের শেষ সময়: ${standardDeadlineText}\n\n📌 মোট বাকি এসআর: ${countStr} জন\n\nবাকি থাকা এসআরদের তালিকা:\n\n${srListStr}\n\nঅনুগ্রহ করে নির্ধারিত সময়সীমার মধ্যে উপরের এসআরদের সেলস পোস্টিং সম্পন্ন করুন।\n\nধন্যবাদ।`;
                 } else {
-                    fallbackBodyText = `প্রিয় ${tsoName},\n\n📢 সেলস পোস্টিং রিমাইন্ডার\n\n📅 রিপোর্টিং তারিখ: *${dateStr}*\n⏰ পোস্টিংয়ের শেষ সময়: *${deadlineText}*\n\n📌 মোট বাকি এসআর: ${countStr} জন\n\nবাকি থাকা এসআরদের তালিকা:\n\n${srListStr}\n\nঅনুগ্রহ করে নির্ধারিত সময়সীমার মধ্যে উপরের এসআরদের সেলস পোস্টিং সম্পন্ন করুন।\n\nধন্যবাদ।`;
+                    fallbackBodyText = `প্রিয় ${tsoName},\n\n📢 সেলস পোস্টিং রিমাইন্ডার\n\n📅 রিপোর্টিং তারিখ: *${dateStr}*\n⏰ পোস্টিংয়ের শেষ সময়: *${withDeadlineText}*\n\n📌 মোট বাকি এসআর: ${countStr} জন\n\nবাকি থাকা এসআরদের তালিকা:\n\n${srListStr}\n\nঅনুগ্রহ করে নির্ধারিত সময়সীমার মধ্যে উপরের এসআরদের সেলস পোস্টিং সম্পন্ন করুন।\n\nধন্যবাদ।`;
                 }
             } else {
                 const msgStr = String(messageOrParams || '');
