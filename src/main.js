@@ -563,6 +563,36 @@ function copyData() {
   // Rebuild Attendance only after the copied Sales data is committed.
   SpreadsheetApp.flush();
   syncAttendanceNow();
+
+  // Snapshot today's 1st sales and update Dashboard tracking
+  try {
+    const tz = "Asia/Dhaka";
+    const todayStr = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
+    const props = PropertiesService.getScriptProperties();
+    const storedDate = props.getProperty("TODAY_FIRST_SALES_DATE") || "";
+
+    const rawN3 = target.getRange("N3").getValue();
+    const currentSalesVal = typeof rawN3 === 'number' ? rawN3 : (parseFloat(String(rawN3).replace(/[^0-9.-]+/g, '')) || 0);
+    const dashSheet = SpreadsheetApp.openById(TARGET_ID).getSheetByName("Dashboard");
+
+    if (dashSheet) {
+      if (storedDate !== todayStr) {
+        // First sales copy of today
+        props.setProperty("TODAY_FIRST_SALES_DATE", todayStr);
+        props.setProperty("TODAY_FIRST_SALES_VALUE", String(currentSalesVal));
+        dashSheet.getRange("K5").setValue(currentSalesVal);
+      } else {
+        // Subsequent copies today: ensure K5 still retains the first sales value
+        const existingK5 = dashSheet.getRange("K5").getValue();
+        if (existingK5 === "" || existingK5 === null || existingK5 === undefined || (typeof existingK5 === 'number' && isNaN(existingK5))) {
+          const savedFirst = parseFloat(props.getProperty("TODAY_FIRST_SALES_VALUE")) || currentSalesVal;
+          dashSheet.getRange("K5").setValue(savedFirst);
+        }
+      }
+    }
+  } catch (snapErr) {
+    console.log("Dashboard sales snapshot note: " + snapErr);
+  }
 }
 
 /**

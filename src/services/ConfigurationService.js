@@ -539,8 +539,8 @@ const ConfigurationService = (() => {
             sheet.setColumnWidth(11, 210); // Column K
             sheet.showColumns(9, 3);
 
-            // J5:K5 Header (Merged)
-            const headerRange = sheet.getRange('J5:K5');
+            // J9:K9 Header (Merged)
+            const headerRange = sheet.getRange('J9:K9');
             headerRange.breakApart();
             headerRange.merge();
             headerRange.setValue('MESSAGE DRAFT LIVE PREVIEW')
@@ -550,10 +550,10 @@ const ConfigurationService = (() => {
                 .setFontSize(9)
                 .setHorizontalAlignment('center')
                 .setVerticalAlignment('middle');
-            sheet.setRowHeight(5, 26);
+            sheet.setRowHeight(9, 24);
 
-            // J6:K24 Preview Area (Merged across J6:K6 to J24:K24)
-            const previewRange = sheet.getRange('J6:K24');
+            // J10:K26 Preview Area (Merged across J10:K10 to J26:K26)
+            const previewRange = sheet.getRange('J10:K26');
             previewRange.breakApart();
             previewRange.merge();
 
@@ -570,9 +570,9 @@ const ConfigurationService = (() => {
                 .setHorizontalAlignment('left')
                 .setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
 
-            sheet.getRange('J5:K24').setBorder(true, true, true, true, true, true, '#c8d7e1', SpreadsheetApp.BorderStyle.SOLID);
+            sheet.getRange('J9:K26').setBorder(true, true, true, true, true, true, '#c8d7e1', SpreadsheetApp.BorderStyle.SOLID);
         } catch (e) {
-            console.log('Error rendering draft preview in J6:K24: ' + e);
+            console.log('Error rendering draft preview in J9:K26: ' + e);
         }
     };
 

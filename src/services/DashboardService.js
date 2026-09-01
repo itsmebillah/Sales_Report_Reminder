@@ -316,6 +316,99 @@ const DashboardService = (() => {
                 .setVerticalAlignment("middle");
 
             kpiFullRange.setBorder(true, true, true, true, true, true, "#334155", SpreadsheetApp.BorderStyle.SOLID);
+
+            // Today's Sales Entry Tracking Card on J4:K7
+            const trackingHeaderRange = sheet.getRange("J4:K4");
+            trackingHeaderRange.breakApart().merge()
+                .setValue("TODAY'S SALES TRACKING")
+                .setFontFamily("Arial")
+                .setFontSize(8)
+                .setFontWeight("bold")
+                .setBackground("#1e293b")
+                .setFontColor("#94a3b8")
+                .setHorizontalAlignment("center")
+                .setVerticalAlignment("middle");
+            sheet.setRowHeight(4, 22);
+
+            // J5: 1st Sales Label
+            sheet.getRange("J5").setValue("1st Sales (Initial)")
+                .setFontFamily("Arial")
+                .setFontSize(8.5)
+                .setFontWeight("bold")
+                .setBackground("#f8fafc")
+                .setFontColor("#475569")
+                .setHorizontalAlignment("left")
+                .setVerticalAlignment("middle");
+            sheet.setRowHeight(5, 22);
+
+            // K5: 1st Sales Value
+            const k5Cell = sheet.getRange("K5");
+            const existingK5 = k5Cell.getValue();
+            if (existingK5 === "" || existingK5 === null || existingK5 === undefined) {
+                let savedFirst = "";
+                try {
+                    savedFirst = PropertiesService.getScriptProperties().getProperty("TODAY_FIRST_SALES_VALUE") || "";
+                } catch (e) {}
+                if (savedFirst !== "") {
+                    k5Cell.setValue(Number(savedFirst));
+                } else {
+                    k5Cell.setValue(0);
+                }
+            }
+            k5Cell.setFontFamily("Arial")
+                .setFontSize(9)
+                .setFontWeight("bold")
+                .setBackground("#ffffff")
+                .setFontColor("#0f172a")
+                .setHorizontalAlignment("right")
+                .setVerticalAlignment("middle")
+                .setNumberFormat("#,##0.00");
+
+            // J6: Last Sales Label
+            sheet.getRange("J6").setValue("Last Sales (Current)")
+                .setFontFamily("Arial")
+                .setFontSize(8.5)
+                .setFontWeight("bold")
+                .setBackground("#f8fafc")
+                .setFontColor("#475569")
+                .setHorizontalAlignment("left")
+                .setVerticalAlignment("middle");
+            sheet.setRowHeight(6, 22);
+
+            // K6: Last Sales Formula pointing to J3
+            sheet.getRange("K6").setFormula("=J3")
+                .setFontFamily("Arial")
+                .setFontSize(9)
+                .setFontWeight("bold")
+                .setBackground("#ffffff")
+                .setFontColor("#0f172a")
+                .setHorizontalAlignment("right")
+                .setVerticalAlignment("middle")
+                .setNumberFormat("#,##0.00");
+
+            // J7: Difference Label
+            sheet.getRange("J7").setValue("Today's Entry (Diff)")
+                .setFontFamily("Arial")
+                .setFontSize(8.5)
+                .setFontWeight("bold")
+                .setBackground("#f0fdf4")
+                .setFontColor("#15803d")
+                .setHorizontalAlignment("left")
+                .setVerticalAlignment("middle");
+            sheet.setRowHeight(7, 22);
+
+            // K7: Difference Formula
+            sheet.getRange("K7").setFormula("=IF(ISNUMBER(K5),K6-K5,0)")
+                .setFontFamily("Arial")
+                .setFontSize(9.5)
+                .setFontWeight("bold")
+                .setBackground("#f0fdf4")
+                .setFontColor("#16a34a")
+                .setHorizontalAlignment("right")
+                .setVerticalAlignment("middle")
+                .setNumberFormat("+#,##0.00;-#,##0.00;0.00");
+
+            sheet.getRange("J4:K7").setBorder(true, true, true, true, true, true, "#cbd5e1", SpreadsheetApp.BorderStyle.SOLID);
             sheet.setColumnWidth(10, 110);
             sheet.setColumnWidth(11, 110);
 
