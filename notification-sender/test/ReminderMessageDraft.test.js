@@ -38,7 +38,7 @@ test('DateUtils.getNextDayDate computes next calendar day accurately across mont
     assert.equal(DateUtils.formatDate(next2, 'Asia/Dhaka'), '01-Sep-2026');
 });
 
-test('Reminder message draft WITH_DEADLINE contains bold reporting date and fixed 10.00 AM next day deadline', () => {
+test('Reminder message draft WITH_DEADLINE contains bold reporting date and fixed 10.00 to 11.00 today deadline', () => {
     const DateUtils = loadDateUtils();
     const source = fs.readFileSync(path.resolve(__dirname, '../../src/services/ReminderService.js'), 'utf8');
     
@@ -96,11 +96,11 @@ test('Reminder message draft WITH_DEADLINE contains bold reporting date and fixe
     // Verify bold reporting date: 📅 রিপোর্টিং তারিখ: *...*
     assert.match(messageBody, /📅 রিপোর্টিং তারিখ: \*\d{2}-[A-Za-z]{3}-\d{4}\*/);
 
-    // Verify deadline line: ⏰ পোস্টিংয়ের শেষ সময়: *... 10.00 থেকে সকাল 11.00 টা*
-    assert.match(messageBody, /⏰ পোস্টিংয়ের শেষ সময়: \*\d{2}-[A-Za-z]{3}-\d{4} 10\.00 থেকে সকাল 11\.00 টা\*/);
+    // Verify deadline line: ⏰ পোস্টিংয়ের শেষ সময়: *আজ (...) সকাল 10.00 থেকে 11.00 টা*
+    assert.match(messageBody, /⏰ পোস্টিংয়ের শেষ সময়: \*আজ \(\d{2}-[A-Za-z]{3}-\d{4}\) সকাল 10\.00 থেকে 11\.00 টা\*/);
 });
 
-test('Reminder message draft STANDARD contains standard reporting date and no deadline line', () => {
+test('Reminder message draft STANDARD contains standard reporting date and today deadline line', () => {
     const DateUtils = loadDateUtils();
     const source = fs.readFileSync(path.resolve(__dirname, '../../src/services/ReminderService.js'), 'utf8');
     
@@ -159,8 +159,9 @@ test('Reminder message draft STANDARD contains standard reporting date and no de
     assert.match(messageBody, /📅 রিপোর্টিং তারিখ: \d{2}-[A-Za-z]{3}-\d{4}/);
     assert.doesNotMatch(messageBody, /📅 রিপোর্টিং তারিখ: \*/);
 
-    // No deadline line
-    assert.doesNotMatch(messageBody, /পোস্টিংয়ের শেষ সময়/);
+    // Standard deadline line without bold asterisks
+    assert.match(messageBody, /⏰ পোস্টিংয়ের শেষ সময়: আজ \(\d{2}-[A-Za-z]{3}-\d{4}\) সকাল 10\.00 থেকে 11\.00 টা/);
+    assert.doesNotMatch(messageBody, /⏰ পোস্টিংয়ের শেষ সময়: \*/);
 });
 
 test('Test Mode safely overrides recipient phone with TEST_RECIPIENT_PHONE', () => {

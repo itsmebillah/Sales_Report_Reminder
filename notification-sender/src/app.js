@@ -278,22 +278,26 @@ async function main() {
 
                 // ── GATE 1: SYSTEM_STATUS == STOP ──
                 if (cycleMode === 'IDLE') {
-                    Logger.info(`[SYSTEM_STATUS: STOP] Worker sleeping for ${runtimeConfig.pollInterval}s...`);
-                    await sheetService.updateSettings({
-                        'Sender_Status': 'Waiting',
-                        'Last_Run_Time': formatBDDateTime()
-                    });
+                    if (runtimeConfig.senderStatus !== 'Waiting') {
+                        Logger.info(`[SYSTEM_STATUS: STOP] Worker sleeping for ${runtimeConfig.pollInterval}s...`);
+                        await sheetService.updateSettings({
+                            'Sender_Status': 'Waiting',
+                            'Last_Run_Time': formatBDDateTime()
+                        });
+                    }
                     await sleep(pollIntervalMs);
                     continue;
                 }
 
                 // ── GATE 2: Toggles Disabled ──
                 if (cycleMode === 'PAUSED') {
-                    Logger.info(`[WORKER PAUSED] Queue or WhatsApp disabled in Dashboard configuration. Sleeping for ${runtimeConfig.pollInterval}s...`);
-                    await sheetService.updateSettings({
-                        'Sender_Status': 'Paused',
-                        'Last_Run_Time': formatBDDateTime()
-                    });
+                    if (runtimeConfig.senderStatus !== 'Paused') {
+                        Logger.info(`[WORKER PAUSED] Queue or WhatsApp disabled in Dashboard configuration. Sleeping for ${runtimeConfig.pollInterval}s...`);
+                        await sheetService.updateSettings({
+                            'Sender_Status': 'Paused',
+                            'Last_Run_Time': formatBDDateTime()
+                        });
+                    }
                     await sleep(pollIntervalMs);
                     continue;
                 }
@@ -309,12 +313,6 @@ async function main() {
                     continue;
                 }
 
-                // ── SYSTEM_STATUS == RUNNING ──
-                await sheetService.updateSettings({
-                    'Sender_Status': 'Running',
-                    'Last_Run_Time': formatBDDateTime()
-                });
-
                 // Ensure WhatsApp Client is connected
                 if (!whatsappProvider.isConnected()) {
                     Logger.info('[WHATSAPP INITIALIZING] Connecting WhatsApp Web browser...');
@@ -323,20 +321,41 @@ async function main() {
                     await whatsappProvider.initialize(providerConfig);
                     await whatsappProvider.connect(120000);
                     Logger.info('✓ WhatsApp Web Client connected and ready!');
-                    await sheetService.updateSettings({ 'Sender_Status': 'Running' });
+                    await sheetService.updateSettings({
+                        'Sender_Status': 'Running',
+                        'Last_Run_Time': formatBDDateTime()
+                    });
                 }
 
                 // Read PENDING records from queue sheet
                 const pendingRecords = await sheetService.readPendingQueue(queueSheetName);
 
                 if (!pendingRecords || pendingRecords.length === 0) {
-                    Logger.info(`[QUEUE IDLE] No PENDING records in "${queueSheetName}". Sleeping for ${runtimeConfig.pollInterval}s...`);
-                    await sheetService.updateSettings({
-                        'Sender_Status': 'Waiting',
-                        'Last_Run_Time': formatBDDateTime()
-                    });
+                    const isCountdownActive = String(runtimeConfig.autoShutdownRunPhase || '').toUpperCase() === 'COUNTDOWN';
+                    if (!isCountdownActive) {
+                        Logger.info(`✓ [QUEUE COMPLETED] All pending messages in "${queueSheetName}" have been processed. Auto-stopping sender (SYSTEM_STATUS -> STOP).`);
+                        await sheetService.updateSettings({
+                            'SYSTEM_STATUS': 'STOP',
+                            'Sender_Status': 'Waiting',
+                            'Last_Run_Time': formatBDDateTime()
+                        });
+                    } else if (runtimeConfig.senderStatus !== 'Waiting') {
+                        Logger.info(`[AUTO-SHUTDOWN COUNTDOWN] Queue completed. Waiting for shutdown countdown...`);
+                        await sheetService.updateSettings({
+                            'Sender_Status': 'Waiting',
+                            'Last_Run_Time': formatBDDateTime()
+                        });
+                    }
                     await sleep(pollIntervalMs);
                     continue;
+                }
+
+                // Update status to Running when there is active work to process
+                if (runtimeConfig.senderStatus !== 'Running') {
+                    await sheetService.updateSettings({
+                        'Sender_Status': 'Running',
+                        'Last_Run_Time': formatBDDateTime()
+                    });
                 }
 
                 // Process exactly ONE queue item per cycle sequentially
@@ -450,13 +469,22 @@ async function main() {
                                 errorMessage: errorReason,
                                 retryCount: nextRetry
                             });
-                            messagesFailedToday++;
-                            Logger.warn(`⚠️ [RETRY/FAILED] Queue ID: ${queueRecord.queueId} | Row ${queueRecord.rowIndex} -> Status: ${newStatus} (Reason: ${errorReason})`);
-                            await sheetService.updateSettings({
-                                'Sender_Status': 'Running',
-                                'Last_Run_Time': nowBD,
-                                'Messages_Failed_Today': String(messagesFailedToday)
-                            });
+
+                            if (newStatus === 'FAILED') {
+                                messagesFailedToday++;
+                                Logger.warn(`❌ [FAILED] Queue ID: ${queueRecord.queueId} | Row ${queueRecord.rowIndex} -> Status: FAILED (Reason: ${errorReason})`);
+                                await sheetService.updateSettings({
+                                    'Sender_Status': 'Running',
+                                    'Last_Run_Time': nowBD,
+                                    'Messages_Failed_Today': String(messagesFailedToday)
+                                });
+                            } else {
+                                Logger.warn(`⚠️ [RETRY] Queue ID: ${queueRecord.queueId} | Row ${queueRecord.rowIndex} -> Attempt ${nextRetry} of ${runtimeConfig.maxRetry || 3} (Reason: ${errorReason})`);
+                                await sheetService.updateSettings({
+                                    'Sender_Status': 'Running',
+                                    'Last_Run_Time': nowBD
+                                });
+                            }
                         }
                     } else {
                         Logger.warn(`⚠️ [CLAIM SKIPPED] ${claimResult.reason}`);

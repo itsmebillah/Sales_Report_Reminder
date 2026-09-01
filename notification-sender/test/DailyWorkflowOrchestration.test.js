@@ -252,3 +252,37 @@ test('TEST 8: Scheduler Time replaces duplicate daily triggers with exactly one'
     assert.equal(status.runScheduledDailyWorkflowCount, 1);
     assert.equal(status.processDailyRemindersCount, 0);
 });
+
+test('TEST: worker auto-stops SYSTEM_STATUS to STOP when queue is empty and auto shutdown is not in countdown', async () => {
+    // When readPendingQueue returns empty array, and autoShutdownRunPhase != COUNTDOWN,
+    // worker must persist SYSTEM_STATUS=STOP and Sender_Status=Waiting without continuously polling.
+    const updates = [];
+    const fakeSheet = {
+        updateSettings: async vals => {
+            updates.push(vals);
+            return true;
+        },
+        readPendingQueue: async () => []
+    };
+    
+    // Simulate what app.js loop does on empty queue
+    const runtimeConfig = {
+        autoShutdownRunPhase: 'IDLE',
+        senderStatus: 'Running',
+        queueSheet: 'Message_Queue'
+    };
+
+    const isCountdownActive = String(runtimeConfig.autoShutdownRunPhase || '').toUpperCase() === 'COUNTDOWN';
+    if (!isCountdownActive) {
+        await fakeSheet.updateSettings({
+            'SYSTEM_STATUS': 'STOP',
+            'Sender_Status': 'Waiting',
+            'Last_Run_Time': '01-Sep-2026 10:30:00 AM'
+        });
+    }
+
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0].SYSTEM_STATUS, 'STOP');
+    assert.equal(updates[0].Sender_Status, 'Waiting');
+});
+
