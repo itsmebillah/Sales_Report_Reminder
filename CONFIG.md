@@ -1,16 +1,36 @@
 # Configuration Guide
 
-## Script Properties
-To run this project, the following Script Properties must be defined in the Google Apps Script Project Settings:
+⚡ **Architect:** Md. Masum Billah • [Website](https://itsmebillah.github.io/)
 
-| Key | Description | Example |
+All runtime settings are managed centrally in Google Sheets on the **`Dashboard`** tab (Columns `C:E`), eliminating hardcoded values.
+
+---
+
+## 1. Dashboard Configuration Parameters (Columns C:E)
+
+| Setting Key | Default | Description |
 |---|---|---|
-| `ENVIRONMENT` | Deployment environment (`DEV`, `STAGING`, `PROD`) | `STAGING` |
-| `ADMIN_EMAIL` | Receives administrative alerts and error logs | `admin@example.com` |
-| `REMINDER_TIME_LIMIT_DAYS` | Threshold in days before a reminder triggers | `3` |
+| **`SYSTEM_STATUS`** | `WAITING` | Master switch for the Node.js background worker (`RUNNING`, `WAITING`, `STOP`). |
+| **`WHATSAPP_ENABLED`** | `TRUE` | Global toggle enabling/disabling live WhatsApp message dispatch. |
+| **`Scheduler_Time`** | `09:00` | Daily scheduled time (HH:mm in `Asia/Dhaka`) for daily workflow execution. |
+| **`AUTO_SHUTDOWN_ENABLED`** | `TRUE` | If `TRUE`, starts 12-minute countdown to shut down PC after queue completion. |
+| **`AUTO_SHUTDOWN_MINUTES`** | `12` | Duration in minutes for the post-queue auto-shutdown safety timer. |
+| **`TEST_MODE`** | `FALSE` | When `TRUE`, all outgoing messages are redirected to `OVERRIDE_PHONE`. |
+| **`OVERRIDE_PHONE`** | `8801...` | Recipient phone number used when `TEST_MODE=TRUE`. |
+| **`Dry_Run`** | `FALSE` | Simulates sending without actual WhatsApp Web API transmission. |
+| **`REMINDER_RETENTION_DAYS`** | `30` | Number of days before completed `Message_Queue` rows are archived/purged. |
+| **`SEND_DELAY_SECONDS`** | `5` | Throttle interval between consecutive message dispatches to prevent rate-limiting. |
+| **`Timezone`** | `Asia/Dhaka` | Canonical timezone used for all dates and deadlines. |
 
-## Spreadsheet Architecture
-The target Google Sheet must contain the following named sheets (tabs) for standard operation (to be built):
-1. **Leads**: Contains active opportunities.
-2. **Reminders**: Event log and upcoming triggers.
-3. **Config**: (Optional) For user-facing dynamic settings.
+---
+
+## 2. Environment Variables (`.env`)
+
+Used strictly by the local `notification-sender` Node.js daemon:
+
+| Variable | Description |
+|---|---|
+| `SPREADSHEET_ID` | The Google Sheets Spreadsheet ID extracted from the URL. |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Relative or absolute path to the Service Account JSON key. |
+| `CHROMIUM_EXECUTABLE_PATH` | (Optional) Path to local Brave or Chrome executable for Puppeteer. |
+| `NODE_ENV` | Environment mode (`production` / `development`). |
