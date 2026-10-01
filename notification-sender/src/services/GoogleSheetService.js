@@ -202,7 +202,7 @@ class GoogleSheetService {
 
         const response = await this.sheets.spreadsheets.values.get({
             spreadsheetId: this.spreadsheetId,
-            range: `${queueSheetName}!A1:Z`
+            range: `${queueSheetName}!A1:ZZ`
         });
         const rows = response.data.values || [];
         if (rows.length <= 1) return [];
@@ -239,7 +239,7 @@ class GoogleSheetService {
 
         const response = await this.sheets.spreadsheets.values.get({
             spreadsheetId: this.spreadsheetId,
-            range: `${queueSheetName}!A1:Z`
+            range: `${queueSheetName}!A1:ZZ`
         });
 
         const rows = response.data.values || [];
@@ -263,6 +263,11 @@ class GoogleSheetService {
         const idxMessageBody = headerMap['Message_Body'] !== undefined ? headerMap['Message_Body'] : 11;
         const idxStatus = headerMap['Status'] !== undefined ? headerMap['Status'] : 12;
         const idxRetryCount = headerMap['Retry_Count'] !== undefined ? headerMap['Retry_Count'] : 13;
+        const idxMediaUrl = headerMap['Media_Url'] !== undefined ? headerMap['Media_Url']
+            : (headerMap['Media_URL'] !== undefined ? headerMap['Media_URL']
+            : (headerMap['Media_Path'] !== undefined ? headerMap['Media_Path']
+            : (headerMap['File_Path'] !== undefined ? headerMap['File_Path'] : headerMap['Media'])));
+        const idxMediaType = headerMap['Media_Type'] !== undefined ? headerMap['Media_Type'] : headerMap['Media_TYPE'];
 
         const pendingRecords = [];
 
@@ -278,6 +283,8 @@ class GoogleSheetService {
                     recipientName: String(row[idxRecipientName] || '').trim(),
                     recipientPhone: String(row[idxRecipientPhone] || '').trim(),
                     message: String(row[idxMessageBody] || '').trim(),
+                    mediaUrl: idxMediaUrl !== undefined ? String(row[idxMediaUrl] || '').trim() : '',
+                    mediaType: idxMediaType !== undefined ? String(row[idxMediaType] || '').trim().toUpperCase() : '',
                     retryCount: Number.isNaN(retryVal) ? 0 : retryVal,
                     status: status,
                     rowIndex: i + 1

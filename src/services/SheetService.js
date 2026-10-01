@@ -163,8 +163,69 @@ const SheetService = (() => {
                 srMap[srId] = contactObj;
             }
         }
+
         return { tsoMap, srMap, rsmMap, rsmConflicts };
     };
+        
+    /**
+     * Safely unmerges any merged ranges that intersect with the target range
+     * by finding each intersecting merged range from getMergedRanges() and breaking it apart.
+     * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+     * @param {string|GoogleAppsScript.Spreadsheet.Range} targetRange
+     */
+    const safeBreakApart = (sheet, targetRange) => {
+        if (!sheet) return null;
+        let range = null;
+        try {
+            range = typeof targetRange === 'string' ? sheet.getRange(targetRange) : targetRange;
+            const tStartRow = range.getRow();
+            const tEndRow = range.getLastRow();
+            const tStartCol = range.getColumn();
+            const tEndCol = range.getLastColumn();
+
+            const mergedRanges = sheet.getMergedRanges();
+            for (let i = 0; i < mergedRanges.length; i++) {
+                const mr = mergedRanges[i];
+                const mStartRow = mr.getRow();
+                const mEndRow = mr.getLastRow();
+                const mStartCol = mr.getColumn();
+                const mEndCol = mr.getLastColumn();
+
+                const intersects = !(mEndRow < tStartRow || mStartRow > tEndRow || mEndCol < tStartCol || mStartCol > tEndCol);
+                if (intersects) {
+                    try {
+                        mr.breakApart();
+                    } catch (e) {}
+                }
+            }
+        } catch (err) {
+            console.warn('SheetService.safeBreakApart warning: ' + err);
+        }
+        return range;
+    };
+
+    /**
+     * Safely merges a target range by first breaking apart any intersecting merged ranges.
+     * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+     * @param {string|GoogleAppsScript.Spreadsheet.Range} targetRange
+     * @returns {GoogleAppsScript.Spreadsheet.Range}
+     */
+    const safeMerge = (sheet, targetRange) => {
+        if (!sheet) return null;
+        let range = null;
+        try {
+            range = typeof targetRange === 'string' ? sheet.getRange(targetRange) : targetRange;
+            safeBreakApart(sheet, range);
+            return range.merge();
+        } catch (err) {
+            try {
+                return range || (typeof targetRange === 'string' ? sheet.getRange(targetRange) : targetRange);
+            } catch (e) {
+                return null;
+            }
+        }
+    };
+
 
     /**
      * Legacy helper: Parses the Contact list sheet into a dictionary based on SR_ID.
@@ -358,6 +419,8 @@ const SheetService = (() => {
         writePendingTSOs,
         writeMessageQueue,
         readReminderSystemCache,
-        writeReminderSystemCache
+        writeReminderSystemCache,
+        safeBreakApart,
+        safeMerge
     };
 })();

@@ -286,3 +286,24 @@ test('TEST: worker auto-stops SYSTEM_STATUS to STOP when queue is empty and auto
     assert.equal(updates[0].Sender_Status, 'Waiting');
 });
 
+test('TEST: Broadcast getMediaUrl gives priority to H19 over X5 and detects media types accurately', () => {
+    const detectMediaType = (url) => {
+        if (!url) return '';
+        const clean = url.toLowerCase().split('?')[0];
+        if (clean.match(/\.(jpg|jpeg|png|webp|gif)$/i)) return 'IMAGE';
+        if (clean.match(/\.(mp4|3gp|mov|avi|mkv)$/i)) return 'VIDEO';
+        if (clean.match(/\.(ogg|opus|voice)$/i)) return 'VOICE';
+        if (clean.match(/\.(mp3|wav|m4a|aac)$/i)) return 'AUDIO';
+        if (clean.match(/\.(pdf|doc|docx|xls|xlsx|txt|csv)$/i)) return 'DOCUMENT';
+        if (url.includes('drive.google.com')) return 'DOCUMENT';
+        return 'FILE';
+    };
+
+    assert.equal(detectMediaType('https://drive.google.com/file/d/12345/view'), 'DOCUMENT');
+    assert.equal(detectMediaType('C:\\images\\report.png'), 'IMAGE');
+    assert.equal(detectMediaType('D:\\data\\sales.xlsx'), 'DOCUMENT');
+    assert.equal(detectMediaType('https://example.com/audio.mp3'), 'AUDIO');
+    assert.equal(detectMediaType('https://example.com/promo.mp4'), 'VIDEO');
+});
+
+

@@ -35,6 +35,26 @@ function onOpen(e) {
           .addItem('Setup Environment Sheets & Triggers', 'runEnvironmentSetup')
           .addItem('⚙️  Set Scheduler Time', 'openSchedulerTimePicker')
           .addItem('⚙️ Auto PC Shutdown Settings', 'openAutoShutdownSettings')
+          .addSeparator()
+          .addItem('📢  Open Broadcast Dashboard', 'openBroadcastDashboard')
+          .addItem('📨  Send Broadcast to Selected', 'sendBroadcastToSelected')
+          .addToUi();
+
+        // Dedicated WhatsApp Broadcast menu to control everything from Broadcast_Dashboard
+        ui.createMenu('WhatsApp Broadcast')
+          .addItem('📢 Open Broadcast Dashboard', 'openBroadcastDashboard')
+          .addItem('🔄 Refresh Broadcast Dashboard', 'refreshBroadcastDashboard')
+          .addSeparator()
+          .addItem('📎 Attach Local File (Upload to Drive)...', 'openFileUploadDialog')
+          .addItem('🗑️ Clear Attachment', 'clearBroadcastAttachment')
+          .addSeparator()
+          .addItem('👁 Preview Message', 'previewBroadcastMessage')
+          .addItem('🟩 Send to Selected Contacts', 'sendBroadcastToSelected')
+          .addItem('🚢 Send to All Valid Contacts', 'sendBroadcastToAll')
+          .addSeparator()
+          .addItem('☑ Select All Valid Contacts', 'selectAllValidContacts')
+          .addItem('☐ Clear Contact Selection', 'clearContactSelection')
+          .addItem('📋 Open Contact List', 'openContactList')
           .addToUi();
     } catch (err) {
         console.log('onOpen UI initialization skipped: ' + err);
@@ -59,7 +79,18 @@ function processDailyReminders(e) {
  */
 function onEdit(e) {
     try {
-        if (!e || !e.range || e.range.getSheet().getName() !== 'Dashboard') return;
+        if (!e || !e.range) return;
+        const sheet = e.range.getSheet();
+        const sheetName = sheet.getName();
+
+        if (sheetName === 'Broadcast_Dashboard') {
+            if (typeof BroadcastService !== 'undefined' && BroadcastService.handleDashboardEdit) {
+                BroadcastService.handleDashboardEdit(e);
+            }
+            return;
+        }
+
+        if (sheetName !== 'Dashboard') return;
         const editedColumn = e.range.getColumn();
         if ((editedColumn !== 4 && editedColumn !== 7) || e.range.getNumRows() !== 1 || e.range.getNumColumns() !== 1) return;
         if (typeof ConfigLoader !== 'undefined' && ConfigLoader.invalidate) ConfigLoader.invalidate();
@@ -551,11 +582,14 @@ function copyData() {
   const source = SpreadsheetApp.openById(SOURCE_ID).getSheetByName("Sheet4");
   const target = SpreadsheetApp.openById(TARGET_ID).getSheetByName("Sales");
 
-  // শুধু A1:DS1000 পর্যন্ত পড়বে
-  const data = source.getRange("A1:DS1000").getDisplayValues();
+  const lastRow = Math.max(source.getLastRow(), 1000);
+  const lastCol = Math.max(source.getLastColumn(), 123); // Col DS = 123
+  const data = source.getRange(1, 1, lastRow, lastCol).getDisplayValues();
 
-  // শুধু A1:DS1000 এর data clear করবে
-  target.getRange("A1:DS1000").clearContent();
+  // Clear existing target data range
+  const targetMaxRows = Math.max(target.getLastRow(), lastRow);
+  const targetMaxCols = Math.max(target.getLastColumn(), lastCol);
+  target.getRange(1, 1, targetMaxRows, targetMaxCols).clearContent();
 
   // Data paste
   target.getRange(1, 1, data.length, data[0].length).setValues(data);
@@ -570,52 +604,13 @@ function copyData() {
     const now = new Date();
     const todayStr = Utilities.formatDate(now, tz, "yyyy-MM-dd");
     const currentTimeStr = Utilities.formatDate(now, tz, "hh:mm a");
-    const props = PropertiesService.getScriptProperties();
-    const storedDate = props.getProperty("TODAY_FIRST_SALES_DATE") || "";
 
     const rawN3 = target.getRange("N3").getValue();
     const currentSalesVal = typeof rawN3 === 'number' ? rawN3 : (parseFloat(String(rawN3).replace(/[^0-9.-]+/g, '')) || 0);
     const dashSheet = SpreadsheetApp.openById(TARGET_ID).getSheetByName("Dashboard");
 
-    if (dashSheet) {
-      if (storedDate !== todayStr) {
-        // First sales copy of today
-        props.setProperty("TODAY_FIRST_SALES_DATE", todayStr);
-        props.setProperty("TODAY_FIRST_SALES_TIME", currentTimeStr);
-        props.setProperty("TODAY_FIRST_SALES_VALUE", String(currentSalesVal));
-        props.setProperty("TODAY_PREV_SALES_TIME", currentTimeStr);
-        props.setProperty("TODAY_PREV_SALES_VALUE", String(currentSalesVal));
-        props.setProperty("TODAY_LAST_SALES_TIME", currentTimeStr);
-        props.setProperty("TODAY_LAST_SALES_VALUE", String(currentSalesVal));
-
-        dashSheet.getRange("J5").setValue(`1st Update (${currentTimeStr})`);
-        dashSheet.getRange("K5").setValue(currentSalesVal);
-        dashSheet.getRange("J6").setValue(`Prev Update (${currentTimeStr})`);
-        dashSheet.getRange("K6").setValue(currentSalesVal);
-        dashSheet.getRange("J7").setValue(`Last Update (${currentTimeStr})`);
-      } else {
-        // Subsequent copies today: shift existing LAST to PREV (2nd last)
-        const prevTime = props.getProperty("TODAY_LAST_SALES_TIME") || currentTimeStr;
-        const prevVal = parseFloat(props.getProperty("TODAY_LAST_SALES_VALUE")) || currentSalesVal;
-
-        props.setProperty("TODAY_PREV_SALES_TIME", prevTime);
-        props.setProperty("TODAY_PREV_SALES_VALUE", String(prevVal));
-        props.setProperty("TODAY_LAST_SALES_TIME", currentTimeStr);
-        props.setProperty("TODAY_LAST_SALES_VALUE", String(currentSalesVal));
-
-        const savedFirstTime = props.getProperty("TODAY_FIRST_SALES_TIME") || currentTimeStr;
-        dashSheet.getRange("J5").setValue(`1st Update (${savedFirstTime})`);
-
-        const existingK5 = dashSheet.getRange("K5").getValue();
-        if (existingK5 === "" || existingK5 === null || existingK5 === undefined || (typeof existingK5 === 'number' && isNaN(existingK5))) {
-          const savedFirstVal = parseFloat(props.getProperty("TODAY_FIRST_SALES_VALUE")) || currentSalesVal;
-          dashSheet.getRange("K5").setValue(savedFirstVal);
-        }
-
-        dashSheet.getRange("J6").setValue(`Prev Update (${prevTime})`);
-        dashSheet.getRange("K6").setValue(prevVal);
-        dashSheet.getRange("J7").setValue(`Last Update (${currentTimeStr})`);
-      }
+    if (dashSheet && typeof DashboardService !== 'undefined' && DashboardService.updateSalesTrackingCard) {
+      DashboardService.updateSalesTrackingCard(dashSheet, currentSalesVal, currentTimeStr, todayStr);
     }
   } catch (snapErr) {
     console.log("Dashboard sales snapshot note: " + snapErr);
@@ -731,5 +726,126 @@ function saveAutoShutdownDelay(minutes) {
     }
     NotificationControlService.updateSetting('AUTO_SHUTDOWN_DELAY_MINUTES', String(delay));
     DashboardService.refreshDashboard();
+}
+
+// ============================================================================
+// BROADCAST DASHBOARD ENTRY POINTS & CONTROLS
+// ============================================================================
+
+/**
+ * Opens or initializes the Broadcast_Dashboard tab.
+ */
+function openBroadcastDashboard() {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    BroadcastService.initBroadcastSheet();
+    const sheet = ss.getSheetByName('Broadcast_Dashboard');
+    if (sheet) {
+        ss.setActiveSheet(sheet);
+        BroadcastService.refreshDashboard();
+    }
+}
+
+/**
+ * Sends custom broadcast message to selected contacts.
+ */
+function sendBroadcastToSelected() {
+    BroadcastService.sendBroadcast(false);
+}
+
+/**
+ * Sends custom broadcast message to all valid contacts.
+ */
+function sendBroadcastToAll() {
+    BroadcastService.sendBroadcast(true);
+}
+
+/**
+ * Previews personalized message for the selected recipient.
+ */
+function previewBroadcastMessage() {
+    BroadcastService.previewMessage();
+}
+
+/**
+ * Refreshes the Broadcast Dashboard layout and statistics.
+ */
+function refreshBroadcastDashboard() {
+    BroadcastService.refreshDashboard();
+    SpreadsheetApp.getActiveSpreadsheet().toast('Broadcast Dashboard refreshed.', 'Broadcast', 3);
+}
+
+/**
+ * Reloads all recipient contacts into Broadcast Dashboard from Contact list and Hierarchy.
+ */
+function loadBroadcastRecipients() {
+    BroadcastService.loadRecipients();
+    SpreadsheetApp.getActiveSpreadsheet().toast('Broadcast recipients reloaded.', 'Broadcast', 3);
+}
+
+// ── Notice System Menu Wrappers ──────────────────────────────────────────────
+
+function setupNoticeSystem() {
+    openBroadcastDashboard();
+}
+
+function refreshNoticeDashboard() {
+    refreshBroadcastDashboard();
+}
+
+function previewNoticeMessage() {
+    previewBroadcastMessage();
+}
+
+function sendNoticeToSelected() {
+    sendBroadcastToSelected();
+}
+
+function sendNoticeToAllValid() {
+    sendBroadcastToAll();
+}
+
+function selectAllValidContacts() {
+    BroadcastService.selectAllValid();
+}
+
+function clearContactSelection() {
+    BroadcastService.clearSelection();
+}
+
+function openContactList() {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let sheet = ss.getSheetByName('Contact list');
+    if (sheet) {
+        if (sheet.isSheetHidden()) {
+            sheet.showSheet();
+        }
+        ss.setActiveSheet(sheet);
+    } else {
+        SpreadsheetApp.getUi().alert('Contact list sheet not found.');
+    }
+}
+
+/**
+ * Opens the File Upload modal dialog to attach files to WhatsApp Broadcast.
+ */
+function openFileUploadDialog() {
+    const html = HtmlService.createHtmlOutputFromFile('FileUploadDialog')
+        .setWidth(480)
+        .setHeight(380);
+    SpreadsheetApp.getUi().showModalDialog(html, '📎 Attach File to WhatsApp Broadcast');
+}
+
+/**
+ * Server-side upload handler called from FileUploadDialog.
+ */
+function uploadMediaFile(base64Data, fileName, mimeType) {
+    return BroadcastService.uploadMediaFile(base64Data, fileName, mimeType);
+}
+
+/**
+ * Clears attachment from Broadcast Dashboard.
+ */
+function clearBroadcastAttachment() {
+    BroadcastService.clearAttachment();
 }
 

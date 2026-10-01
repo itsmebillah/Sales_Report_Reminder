@@ -5,7 +5,7 @@
  * Handles events: qr, ready, authenticated, auth_failure, disconnected, loading_screen, change_state.
  */
 
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const path = require('path');
 const fs = require('fs');
@@ -444,7 +444,7 @@ class WhatsAppWebProvider {
      * Identifies the outgoing message created by this single sequential send.
      * Recipient, body, and canonical ID must all match.
      */
-    isExpectedOutgoingMessage(message, targetJids, body) {
+    isExpectedOutgoingMessage(message, targetJids, body, hasMedia = false) {
         if (!message || !message.fromMe || !this.getSerializedMessageId(message)) return false;
 
         const recipient = typeof message.to === 'string'
@@ -453,7 +453,11 @@ class WhatsAppWebProvider {
                 (message.id && message.id.remote && message.id.remote._serialized) || '';
 
         const expectedRecipients = Array.isArray(targetJids) ? targetJids : [targetJids];
-        return expectedRecipients.includes(recipient) && String(message.body || '') === String(body);
+        if (!expectedRecipients.includes(recipient)) return false;
+        if (hasMedia) {
+            return Boolean(message.hasMedia || String(message.body || '') === String(body || '') || String(message.caption || '') === String(body || ''));
+        }
+        return String(message.body || '') === String(body || '');
     }
 
     getOutgoingMessageIds(messages) {
@@ -463,9 +467,120 @@ class WhatsAppWebProvider {
     }
 
     /**
-     * Sends a WhatsApp text message to the specified recipient using server-validated number resolution (getNumberId).
+     * Resolves a media source (Google Drive URL, Web URL, or local file path) into a MessageMedia object.
+     * @param {string|Object} mediaSource URL or local file path
+     * @param {string} [mediaTypeHint] Optional hint ('IMAGE', 'VIDEO', 'DOCUMENT', etc.)
+     * @returns {Promise<MessageMedia>}
+     */
+    async resolveMessageMedia(mediaSource, mediaTypeHint = '') {
+        if (!mediaSource) return null;
+        if (typeof mediaSource === 'object' && mediaSource.mimetype && mediaSource.data) {
+            return mediaSource;
+        }
+
+        let source = String(mediaSource).trim();
+        if (!source) return null;
+
+        // Strip leading and trailing quotes (e.g. from File Explorer 'Copy as path')
+        source = source.replace(/^["'`“”‘’]+|["'`“”‘’]+$/g, '').trim();
+        if (!source) return null;
+
+        Logger.info(`[MEDIA RESOLUTION] Resolving attachment: ${source} (hint: ${mediaTypeHint || 'NONE'})`);
+
+        // Case 1: Local file system path (supports normalized Windows and relative paths)
+        const normalizedLocalPath = path.isAbsolute(source) ? path.normalize(source) : path.resolve(process.cwd(), source);
+        if (fs.existsSync(normalizedLocalPath)) {
+            Logger.info(`[MEDIA RESOLUTION] Local file found on disk: ${normalizedLocalPath}`);
+            return MessageMedia.fromFilePath(normalizedLocalPath);
+        }
+        if (fs.existsSync(source)) {
+            Logger.info(`[MEDIA RESOLUTION] Local file found on disk: ${source}`);
+            return MessageMedia.fromFilePath(source);
+        }
+
+        // Case 2: Google Drive link
+        const driveMatch = source.match(/\/d\/([a-zA-Z0-9_-]+)|[?&]id=([a-zA-Z0-9_-]+)/);
+        if (driveMatch) {
+            const fileId = driveMatch[1] || driveMatch[2];
+            Logger.info(`[MEDIA RESOLUTION] Google Drive link detected (File ID: ${fileId}). Attempting export.`);
+
+            const driveEndpoints = [
+                `https://drive.google.com/uc?export=download&id=${fileId}`,
+                `https://lh3.googleusercontent.com/d/${fileId}`
+            ];
+
+            for (const endpoint of driveEndpoints) {
+                try {
+                    const response = await fetch(endpoint, {
+                        redirect: 'follow',
+                        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+                    });
+
+                    if (response.ok) {
+                        const contentType = (response.headers.get('content-type') || 'application/octet-stream').split(';')[0].trim();
+                        if (!contentType.includes('text/html')) {
+                            const contentDisp = response.headers.get('content-disposition') || '';
+                            let filename = 'attachment';
+                            const fnMatch = contentDisp.match(/filename\*?=(?:UTF-8'')?["']?([^"';]+)["']?/i);
+                            if (fnMatch) {
+                                filename = decodeURIComponent(fnMatch[1]);
+                            } else {
+                                const ext = contentType.includes('pdf') ? 'pdf'
+                                    : (contentType.includes('image') ? 'jpg'
+                                    : (contentType.includes('video') ? 'mp4'
+                                    : (contentType.includes('audio') ? 'mp3'
+                                    : (mediaTypeHint === 'DOCUMENT' ? 'pdf' : (mediaTypeHint === 'IMAGE' ? 'jpg' : 'bin')))));
+                                filename = `attachment_${fileId.slice(0, 8)}.${ext}`;
+                            }
+
+                            const buffer = Buffer.from(await response.arrayBuffer());
+                            const base64 = buffer.toString('base64');
+                            Logger.info(`[MEDIA RESOLUTION] Successfully fetched Google Drive file: ${filename} (${buffer.length} bytes, ${contentType}) via ${endpoint}`);
+                            return new MessageMedia(contentType, base64, filename);
+                        }
+                    }
+                } catch (driveErr) {
+                    Logger.warn(`[MEDIA RESOLUTION] Google Drive endpoint ${endpoint} failed: ${driveErr.message}`);
+                }
+            }
+        }
+
+        // Case 3: Public Web URL
+        if (source.startsWith('http://') || source.startsWith('https://')) {
+            try {
+                Logger.info(`[MEDIA RESOLUTION] Fetching web URL via fetch(): ${source}`);
+                const response = await fetch(source, {
+                    redirect: 'follow',
+                    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+                });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status} ${response.statusText}`);
+                }
+                const contentType = (response.headers.get('content-type') || 'application/octet-stream').split(';')[0].trim();
+                const contentDisp = response.headers.get('content-disposition') || '';
+                let filename = path.basename(source.split('?')[0]) || 'attachment';
+                const fnMatch = contentDisp.match(/filename\*?=(?:UTF-8'')?["']?([^"';]+)["']?/i);
+                if (fnMatch) {
+                    filename = decodeURIComponent(fnMatch[1]);
+                }
+
+                const buffer = Buffer.from(await response.arrayBuffer());
+                const base64 = buffer.toString('base64');
+                Logger.info(`[MEDIA RESOLUTION] Successfully fetched Web URL file: ${filename} (${buffer.length} bytes, ${contentType})`);
+                return new MessageMedia(contentType, base64, filename);
+            } catch (fetchErr) {
+                Logger.warn(`[MEDIA RESOLUTION] Web fetch failed: ${fetchErr.message}. Trying MessageMedia.fromUrl().`);
+                return await MessageMedia.fromUrl(source, { unsafeMime: true });
+            }
+        }
+
+        throw new Error(`Media file not found on disk or invalid URL: ${source}`);
+    }
+
+    /**
+     * Sends a WhatsApp text or media message to the specified recipient using server-validated number resolution (getNumberId).
      * Monitors ACK state for up to 30 seconds to ensure message reaches WhatsApp servers (ACK >= 1).
-     * @param {Object} queueRecord Record containing recipientPhone and message text.
+     * @param {Object} queueRecord Record containing recipientPhone, message text, and optional media attachments.
      * @param {Object} [providerConfig] Optional provider configuration.
      * @returns {Promise<Object>} Object containing success, messageId, timestamp, and delivery metadata.
      */
@@ -475,13 +590,15 @@ class WhatsAppWebProvider {
         }
 
         const phone = queueRecord.recipientPhone || queueRecord.phone || queueRecord.to;
-        const message = queueRecord.message || queueRecord.text || queueRecord.body;
+        const message = queueRecord.message || queueRecord.text || queueRecord.body || '';
+        const mediaSource = queueRecord.mediaUrl || queueRecord.media_url || queueRecord.mediaPath || queueRecord.media || queueRecord.filePath || '';
+        const mediaType = String(queueRecord.mediaType || queueRecord.media_type || '').toUpperCase();
 
         if (!phone) {
             throw new Error('Recipient phone number is missing in queue record.');
         }
-        if (!message) {
-            throw new Error('Message content is missing in queue record.');
+        if (!message && !mediaSource) {
+            throw new Error('Message content or media attachment is missing in queue record.');
         }
 
         let cleanDigits = String(phone).replace(/\D/g, '');
@@ -534,6 +651,12 @@ class WhatsAppWebProvider {
             Logger.info(`  getNumberId() resolved : ${numberId._serialized} (server: ${numberId.server})`);
             Logger.info(`  sendMessage() target   : ${sendJid} (@c.us required by whatsapp-web.js getChat() internals)`);
 
+            // Resolve media if present
+            let media = null;
+            if (mediaSource) {
+                media = await this.resolveMessageMedia(mediaSource, mediaType);
+            }
+
             // message_create is not guaranteed for locally-created outgoing
             // messages in current WhatsApp Web. Keep a bounded before-send snapshot
             // so the one newly-created matching outgoing model can be identified
@@ -562,7 +685,7 @@ class WhatsAppWebProvider {
             };
 
             createdMessageListener = (createdMessage) => {
-                if (!this.isExpectedOutgoingMessage(createdMessage, [sendJid, numberId._serialized], message)) return;
+                if (!this.isExpectedOutgoingMessage(createdMessage, [sendJid, numberId._serialized], message, Boolean(media))) return;
 
                 const createdMessageId = this.getSerializedMessageId(createdMessage);
                 if (!messageId) {
@@ -580,7 +703,19 @@ class WhatsAppWebProvider {
             this.client.on('message_create', createdMessageListener);
 
             // 4. Dispatch message using @c.us JID (required by whatsapp-web.js getChat() lookup)
-            const sentMessage = await this.client.sendMessage(sendJid, message);
+            let sentMessage;
+            if (media) {
+                const isDocument = (mediaType === 'DOCUMENT') ||
+                    (!media.mimetype.startsWith('image/') && !media.mimetype.startsWith('video/') && !media.mimetype.startsWith('audio/'));
+                const sendOptions = { sendMediaAsDocument: isDocument };
+                if (message && message.trim()) {
+                    sendOptions.caption = message;
+                }
+                Logger.info(`[DISPATCH] Sending media message (mimetype: ${media.mimetype}, asDocument: ${isDocument}, caption: ${Boolean(sendOptions.caption)})`);
+                sentMessage = await this.client.sendMessage(sendJid, media, sendOptions);
+            } else {
+                sentMessage = await this.client.sendMessage(sendJid, message);
+            }
             dispatched = true;
 
             Logger.info('==================================================');

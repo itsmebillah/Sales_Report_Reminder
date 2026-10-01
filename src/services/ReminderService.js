@@ -274,15 +274,18 @@ const ReminderService = (() => {
             const queueId = Utilities.getUuid();
             const provider = config['NOTIFICATION_PROVIDER'] || 'WhatsApp';
             const targetPhone = getDestinationPhone(group.tsoPhone, config);
+            const idempotencyKey = `TSO_REMINDER|${formattedSalesDate}|${group.tsoId}`;
 
             // Queue_ID, Timestamp, Provider, Recipient_Name, Recipient_Phone, Recipient_Type, 
             // TSO_ID, TSO_Name, Sales_Date, Pending_SR_Count, Pending_SR_List, 
             // Message_Body, Status, Retry_Count, Created_At, Sent_At, Error_Message,
-            // Message_ID, ACK, Processing_Started_At, Worker_ID, Recovery_Time, Recovery_Reason
+            // Message_ID, ACK, Processing_Started_At, Worker_ID, Recovery_Time, Recovery_Reason,
+            // RSM_ID, RSM_Name, Idempotency_Key
             messageQueueRows.push([
                 queueId, timestamp, provider, group.tsoName, targetPhone, "TSO",
                 group.tsoId, group.tsoName, formattedSalesDate, srCount, srList,
-                messageBody, "PENDING", 0, timestamp, "", "", "", "", "", "", "", ""
+                messageBody, "PENDING", 0, timestamp, "", "", "", "", "", "", "", "",
+                group.rsmId || "", group.rsmName || "", idempotencyKey
             ]);
 
             // Timestamp, Sales_Date, TSO_ID, TSO_Name, TSO_Phone, RSM_ID, RSM_Name, Pending_SR_Count, Pending_SR_List
@@ -375,10 +378,10 @@ const ReminderService = (() => {
     };
 
     /**
-     * Rebuilds only Message_Queue from the Pending_TSO rows produced by the
-     * daily reminder workflow. This intentionally performs no reminder
-     * evaluation, pending-sheet generation, attendance update, dashboard
-     * refresh, cache write, or audit logging.
+     * Rebuilds Message_Queue from the Pending_TSO rows produced by the
+     * daily reminder workflow, including both TSO and RSM notification tiers.
+     * This intentionally performs no reminder evaluation, pending-sheet generation,
+     * attendance update, dashboard refresh, cache write, or audit logging.
      * @returns {number} Number of queue rows generated.
      */
     const generateMessageQueueFromPending = () => {
@@ -406,14 +409,20 @@ const ReminderService = (() => {
         const formattedTodayDate = DateUtils.formatDate(timestamp, tz);
         const standardDeadlineText = `আজ (${formattedTodayDate}) সকাল 10.00 থেকে 11.00 টা`;
 
+        const tsoGroups = {};
+        let formattedSalesDate = '';
+
         for (let i = 0; i < pendingTsoRows.length; i++) {
             const row = pendingTsoRows[i];
-            const salesDate = row[1];
-            const tsoId = row[2];
-            const tsoName = row[3];
-            const tsoPhone = row[4];
+            const salesDate = String(row[1] || '');
+            if (!formattedSalesDate && salesDate) formattedSalesDate = salesDate;
+            const tsoId = String(row[2] || '').trim();
+            const tsoName = String(row[3] || '').trim();
+            const tsoPhone = String(row[4] || '').trim();
+            const rsmId = String(row[5] || '').trim();
+            const rsmName = String(row[6] || '').trim();
             const pendingSrCount = row[7];
-            const pendingSrList = row[8];
+            const pendingSrList = String(row[8] || '');
             const targetPhone = getDestinationPhone(tsoPhone, config);
 
             let messageBody;
@@ -424,11 +433,41 @@ const ReminderService = (() => {
                 messageBody = `আসসালামু আলাইকুম।\n\nপ্রিয় ${tsoName},\n\n📢 সেলস পোস্টিং রিমাইন্ডার\n\n📅 রিপোর্টিং তারিখ: *${salesDate}*\n⏰ পোস্টিংয়ের শেষ সময়: *${withDeadlineText}*\n\n📌 মোট বাকি এসআর: ${pendingSrCount} জন\n\nবাকি থাকা এসআরদের তালিকা:\n\n${pendingSrList}\n\nঅনুগ্রহ করে নির্ধারিত সময়সীমার মধ্যে উপরের এসআরদের সেলস পোস্টিং সম্পন্ন করুন।\n\n⚠️ কোনো এসআর Close হয়ে থাকলে অনুগ্রহ করে সংশ্লিষ্ট গ্রুপে জানাবেন।\n\nℹ️ যদি ইতোমধ্যে সেলস পোস্টিং সম্পন্ন হয়ে থাকে, কোনো এসআর ছুটিতে থাকে কিংবা সেলস না থাকে তাহলে অনুগ্রহ করে এই বার্তাটি উপেক্ষা করুন।\n\nধন্যবাদ।`;
             }
 
+            const idempotencyKey = `TSO_REMINDER|${salesDate}|${tsoId}`;
             queueRows.push([
                 Utilities.getUuid(), timestamp, provider, tsoName, targetPhone, 'TSO',
                 tsoId, tsoName, salesDate, pendingSrCount, pendingSrList,
-                messageBody, 'PENDING', 0, timestamp, '', '', '', '', '', '', '', ''
+                messageBody, 'PENDING', 0, timestamp, '', '', '', '', '', '', '', '',
+                rsmId, rsmName, idempotencyKey
             ]);
+
+            // Reconstruct pseudo-SR items from pendingSrList for RSM grouping
+            const srLines = pendingSrList.split('\n').filter(Boolean);
+            const srObjects = srLines.map(line => {
+                const parts = line.replace(/^[•\-\s]+/, '').split(' - ');
+                return { SR_ID: parts[0] || '', SR_Name: parts[1] || '' };
+            });
+
+            tsoGroups[tsoId] = {
+                tsoId,
+                tsoName,
+                tsoPhone,
+                rsmId,
+                rsmName,
+                srs: srObjects.length > 0 ? srObjects : [{ SR_ID: 'SR', SR_Name: 'Pending' }]
+            };
+        }
+
+        // Build RSM Summary queue rows
+        try {
+            const { rsmMap, rsmConflicts } = SheetService.readContactMap();
+            const rsmQueueResult = buildRsmQueueRows(
+                tsoGroups, rsmMap, rsmConflicts, formattedSalesDate, timestamp,
+                provider, config, dryRun
+            );
+            queueRows.push(...rsmQueueResult.queueRows);
+        } catch (rsmErr) {
+            console.log('[QUEUE GENERATION] RSM queue generation skipped: ' + rsmErr.message);
         }
 
         SheetService.writeMessageQueue(queueRows);

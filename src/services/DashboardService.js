@@ -223,7 +223,8 @@ const DashboardService = (() => {
             // Refresh only the operational area. Dashboard C:E is persistent
             // configuration storage and must never be cleared by metric refreshes.
             const operationalRange = sheet.getRange(1, 1, sheet.getMaxRows(), 2);
-            operationalRange.breakApart().clearContent().clearFormat().clearDataValidations().clearNote();
+            SheetService.safeBreakApart(sheet, operationalRange);
+            operationalRange.clearContent().clearFormat().clearDataValidations().clearNote();
 
             // Re-write fresh clean values
             sheet.getRange(1, 1, rows.length, 2).setValues(rows);
@@ -245,13 +246,13 @@ const DashboardService = (() => {
             sheet.setRowHeightsForced(1, rows.length, 31);
             sheet.getRange(2, 1, rows.length - 1, 1).setBackground('#f7f9fb');
 
-            sheet.getRange(1, 1, 1, 2).merge()
+            SheetService.safeMerge(sheet, sheet.getRange(1, 1, 1, 2))
                 .setFontWeight('bold').setFontSize(12)
                 .setBackground(reportHeaderColor).setFontColor('#ffffff')
                 .setHorizontalAlignment('left');
             sheet.setRowHeight(1, 31);
             sectionRows.forEach(row => {
-                sheet.getRange(row, 1, 1, 2).merge()
+                SheetService.safeMerge(sheet, sheet.getRange(row, 1, 1, 2))
                     .setFontWeight('bold').setFontSize(8)
                     .setBackground(reportSectionColor).setFontColor('#ffffff')
                     .setHorizontalAlignment('left');
@@ -295,7 +296,7 @@ const DashboardService = (() => {
             const kpiValueRange = sheet.getRange("J3:K3");
             const kpiFullRange = sheet.getRange("J2:K3");
 
-            kpiHeaderRange.breakApart().merge()
+            SheetService.safeMerge(sheet, kpiHeaderRange)
                 .setValue("TOTAL SALES KPI")
                 .setFontFamily("Arial")
                 .setFontSize(8)
@@ -305,7 +306,7 @@ const DashboardService = (() => {
                 .setHorizontalAlignment("center")
                 .setVerticalAlignment("middle");
 
-            kpiValueRange.breakApart().merge()
+            SheetService.safeMerge(sheet, kpiValueRange)
                 .setFormula("=Sales!N3")
                 .setFontFamily("Arial")
                 .setFontSize(16)
@@ -317,168 +318,9 @@ const DashboardService = (() => {
 
             kpiFullRange.setBorder(true, true, true, true, true, true, "#334155", SpreadsheetApp.BorderStyle.SOLID);
 
-            // Today's Sales Entry Tracking Card on J4:K9
-            const trackingHeaderRange = sheet.getRange("J4:K4");
-            trackingHeaderRange.breakApart().merge()
-                .setValue("TODAY'S SALES UPDATES")
-                .setFontFamily("Arial")
-                .setFontSize(8)
-                .setFontWeight("bold")
-                .setBackground("#1e293b")
-                .setFontColor("#94a3b8")
-                .setHorizontalAlignment("center")
-                .setVerticalAlignment("middle");
-            sheet.setRowHeight(4, 22);
-
-            let savedFirstTime = "";
-            let savedPrevTime = "";
-            let savedLastTime = "";
-            let savedFirstVal = "";
-            let savedPrevVal = "";
-            try {
-                const props = PropertiesService.getScriptProperties();
-                savedFirstTime = props.getProperty("TODAY_FIRST_SALES_TIME") || "";
-                savedPrevTime = props.getProperty("TODAY_PREV_SALES_TIME") || "";
-                savedLastTime = props.getProperty("TODAY_LAST_SALES_TIME") || "";
-                savedFirstVal = props.getProperty("TODAY_FIRST_SALES_VALUE") || "";
-                savedPrevVal = props.getProperty("TODAY_PREV_SALES_VALUE") || "";
-            } catch (e) {}
-
-            const j5Label = savedFirstTime ? `1st Update (${savedFirstTime})` : "1st Update (Initial)";
-            const j6Label = savedPrevTime ? `Prev Update (${savedPrevTime})` : "Prev Update (2nd Last)";
-            const j7Label = savedLastTime ? `Last Update (${savedLastTime})` : "Last Update (Current)";
-
-            // J5: 1st Update Label (with time)
-            sheet.getRange("J5").setValue(j5Label)
-                .setFontFamily("Arial")
-                .setFontSize(8.5)
-                .setFontWeight("bold")
-                .setBackground("#f8fafc")
-                .setFontColor("#475569")
-                .setHorizontalAlignment("left")
-                .setVerticalAlignment("middle");
-            sheet.setRowHeight(5, 22);
-
-            // K5: 1st Sales Value
-            const k5Cell = sheet.getRange("K5");
-            const existingK5 = k5Cell.getValue();
-            if (existingK5 === "" || existingK5 === null || existingK5 === undefined) {
-                if (savedFirstVal !== "") {
-                    k5Cell.setValue(Number(savedFirstVal));
-                } else {
-                    k5Cell.setValue(0);
-                }
-            }
-            k5Cell.setFontFamily("Arial")
-                .setFontSize(9)
-                .setFontWeight("bold")
-                .setBackground("#ffffff")
-                .setFontColor("#0f172a")
-                .setHorizontalAlignment("right")
-                .setVerticalAlignment("middle")
-                .setNumberFormat("#,##0.00");
-
-            // J6: Prev Update Label (with time)
-            sheet.getRange("J6").setValue(j6Label)
-                .setFontFamily("Arial")
-                .setFontSize(8.5)
-                .setFontWeight("bold")
-                .setBackground("#f8fafc")
-                .setFontColor("#475569")
-                .setHorizontalAlignment("left")
-                .setVerticalAlignment("middle");
-            sheet.setRowHeight(6, 22);
-
-            // K6: Prev Sales Value
-            const k6Cell = sheet.getRange("K6");
-            const existingK6 = k6Cell.getValue();
-            if (existingK6 === "" || existingK6 === null || existingK6 === undefined) {
-                if (savedPrevVal !== "") {
-                    k6Cell.setValue(Number(savedPrevVal));
-                } else if (savedFirstVal !== "") {
-                    k6Cell.setValue(Number(savedFirstVal));
-                } else {
-                    k6Cell.setValue(0);
-                }
-            }
-            k6Cell.setFontFamily("Arial")
-                .setFontSize(9)
-                .setFontWeight("bold")
-                .setBackground("#ffffff")
-                .setFontColor("#0f172a")
-                .setHorizontalAlignment("right")
-                .setVerticalAlignment("middle")
-                .setNumberFormat("#,##0.00");
-
-            // J7: Last Update Label (with time)
-            sheet.getRange("J7").setValue(j7Label)
-                .setFontFamily("Arial")
-                .setFontSize(8.5)
-                .setFontWeight("bold")
-                .setBackground("#f8fafc")
-                .setFontColor("#475569")
-                .setHorizontalAlignment("left")
-                .setVerticalAlignment("middle");
-            sheet.setRowHeight(7, 22);
-
-            // K7: Last Sales Formula pointing to J3
-            sheet.getRange("K7").setFormula("=J3")
-                .setFontFamily("Arial")
-                .setFontSize(9)
-                .setFontWeight("bold")
-                .setBackground("#ffffff")
-                .setFontColor("#0f172a")
-                .setHorizontalAlignment("right")
-                .setVerticalAlignment("middle")
-                .setNumberFormat("#,##0.00");
-
-            // J8: Last Change (Diff) Label
-            sheet.getRange("J8").setValue("Last Change (Diff)")
-                .setFontFamily("Arial")
-                .setFontSize(8.5)
-                .setFontWeight("bold")
-                .setBackground("#eff6ff")
-                .setFontColor("#1d4ed8")
-                .setHorizontalAlignment("left")
-                .setVerticalAlignment("middle");
-            sheet.setRowHeight(8, 22);
-
-            // K8: Last Change Formula (K7 - K6)
-            sheet.getRange("K8").setFormula("=IF(ISNUMBER(K6),K7-K6,0)")
-                .setFontFamily("Arial")
-                .setFontSize(9.5)
-                .setFontWeight("bold")
-                .setBackground("#eff6ff")
-                .setFontColor("#2563eb")
-                .setHorizontalAlignment("right")
-                .setVerticalAlignment("middle")
-                .setNumberFormat("+#,##0.00;-#,##0.00;0.00");
-
-            // J9: Today's Total Entry (Diff) Label
-            sheet.getRange("J9").setValue("Today's Entry (Diff)")
-                .setFontFamily("Arial")
-                .setFontSize(8.5)
-                .setFontWeight("bold")
-                .setBackground("#f0fdf4")
-                .setFontColor("#15803d")
-                .setHorizontalAlignment("left")
-                .setVerticalAlignment("middle");
-            sheet.setRowHeight(9, 22);
-
-            // K9: Today's Total Entry Formula (K7 - K5)
-            sheet.getRange("K9").setFormula("=IF(ISNUMBER(K5),K7-K5,0)")
-                .setFontFamily("Arial")
-                .setFontSize(9.5)
-                .setFontWeight("bold")
-                .setBackground("#f0fdf4")
-                .setFontColor("#16a34a")
-                .setHorizontalAlignment("right")
-                .setVerticalAlignment("middle")
-                .setNumberFormat("+#,##0.00;-#,##0.00;0.00");
-
-            sheet.getRange("J4:K9").setBorder(true, true, true, true, true, true, "#cbd5e1", SpreadsheetApp.BorderStyle.SOLID);
-            sheet.setColumnWidth(10, 110);
-            sheet.setColumnWidth(11, 110);
+            // Ensure Today's Sales Entry Tracking Card skeleton exists on J4:K9 if not present.
+            // Note: Does NOT modify/touch existing tracking values during ordinary dashboard refreshes.
+            ensureSalesTrackingCardStructure(sheet);
 
             // Apply Protection to make Dashboard read-only except for spreadsheet owner/editors
             try {
@@ -504,6 +346,190 @@ const DashboardService = (() => {
     };
 
     /**
+     * Applies full styling and structure to J4:K9 for the Today's Sales Updates card.
+     */
+    const applySalesTrackingCardStyle = (sheet) => {
+        SheetService.safeMerge(sheet, "J4:K4")
+            .setValue("TODAY'S SALES UPDATES")
+            .setFontFamily("Arial")
+            .setFontSize(8)
+            .setFontWeight("bold")
+            .setBackground("#1e293b")
+            .setFontColor("#94a3b8")
+            .setHorizontalAlignment("center")
+            .setVerticalAlignment("middle");
+        sheet.setRowHeight(4, 22);
+
+        // J5:J7 Labels styling
+        sheet.getRange("J5:J7")
+            .setFontFamily("Arial")
+            .setFontSize(8.5)
+            .setFontWeight("bold")
+            .setBackground("#f8fafc")
+            .setFontColor("#475569")
+            .setHorizontalAlignment("left")
+            .setVerticalAlignment("middle");
+
+        // K5:K7 Values styling
+        sheet.getRange("K5:K7")
+            .setFontFamily("Arial")
+            .setFontSize(9)
+            .setFontWeight("bold")
+            .setBackground("#ffffff")
+            .setFontColor("#0f172a")
+            .setHorizontalAlignment("right")
+            .setVerticalAlignment("middle")
+            .setNumberFormat("#,##0.00");
+
+        // J8 & K8 Last Change Diff
+        sheet.getRange("J8").setValue("Last Change (Diff)")
+            .setFontFamily("Arial")
+            .setFontSize(8.5)
+            .setFontWeight("bold")
+            .setBackground("#eff6ff")
+            .setFontColor("#1d4ed8")
+            .setHorizontalAlignment("left")
+            .setVerticalAlignment("middle");
+
+        sheet.getRange("K8")
+            .setFontFamily("Arial")
+            .setFontSize(9.5)
+            .setFontWeight("bold")
+            .setBackground("#eff6ff")
+            .setFontColor("#2563eb")
+            .setHorizontalAlignment("right")
+            .setVerticalAlignment("middle")
+            .setNumberFormat("+#,##0.00;-#,##0.00;0.00");
+
+        // J9 & K9 Today's Entry Diff
+        sheet.getRange("J9").setValue("Today's Entry (Diff)")
+            .setFontFamily("Arial")
+            .setFontSize(8.5)
+            .setFontWeight("bold")
+            .setBackground("#f0fdf4")
+            .setFontColor("#15803d")
+            .setHorizontalAlignment("left")
+            .setVerticalAlignment("middle");
+
+        sheet.getRange("K9")
+            .setFontFamily("Arial")
+            .setFontSize(9.5)
+            .setFontWeight("bold")
+            .setBackground("#f0fdf4")
+            .setFontColor("#16a34a")
+            .setHorizontalAlignment("right")
+            .setVerticalAlignment("middle")
+            .setNumberFormat("+#,##0.00;-#,##0.00;0.00");
+
+        sheet.setRowHeight(5, 22);
+        sheet.setRowHeight(6, 22);
+        sheet.setRowHeight(7, 22);
+        sheet.setRowHeight(8, 22);
+        sheet.setRowHeight(9, 22);
+
+        sheet.getRange("J4:K9").setBorder(true, true, true, true, true, true, "#cbd5e1", SpreadsheetApp.BorderStyle.SOLID);
+        sheet.setColumnWidth(10, 110);
+        sheet.setColumnWidth(11, 110);
+    };
+
+    /**
+     * Initializes the Today's Sales Updates skeleton ONLY if J4 is not yet set up.
+     * Does NOT overwrite any existing tracking card during normal dashboard refreshes.
+     */
+    const ensureSalesTrackingCardStructure = (sheet) => {
+        try {
+            const currentHeader = sheet.getRange("J4").getValue();
+            if (currentHeader === "TODAY'S SALES UPDATES") {
+                // Card is already present; do not touch during other runs
+                return;
+            }
+
+            applySalesTrackingCardStyle(sheet);
+
+            let savedFirstTime = "";
+            let savedPrevTime = "";
+            let savedLastTime = "";
+            let savedFirstVal = 0;
+            let savedPrevVal = 0;
+            let savedLastVal = 0;
+            try {
+                const props = PropertiesService.getScriptProperties();
+                savedFirstTime = props.getProperty("TODAY_FIRST_SALES_TIME") || "";
+                savedPrevTime = props.getProperty("TODAY_PREV_SALES_TIME") || "";
+                savedLastTime = props.getProperty("TODAY_LAST_SALES_TIME") || "";
+                savedFirstVal = parseFloat(props.getProperty("TODAY_FIRST_SALES_VALUE")) || 0;
+                savedPrevVal = parseFloat(props.getProperty("TODAY_PREV_SALES_VALUE")) || 0;
+                savedLastVal = parseFloat(props.getProperty("TODAY_LAST_SALES_VALUE")) || 0;
+            } catch (e) {}
+
+            sheet.getRange("J5").setValue(savedFirstTime ? `1st Update (${savedFirstTime})` : "1st Update");
+            sheet.getRange("K5").setValue(savedFirstVal);
+            sheet.getRange("J6").setValue(savedPrevTime ? `Prev Update (${savedPrevTime})` : "Prev Update");
+            sheet.getRange("K6").setValue(savedPrevVal);
+            sheet.getRange("J7").setValue(savedLastTime ? `Last Update (${savedLastTime})` : "Last Update");
+            sheet.getRange("K7").setValue(savedLastVal);
+            sheet.getRange("K8").setFormula("=IF(ISNUMBER(K6),K7-K6,0)");
+            sheet.getRange("K9").setFormula("=IF(ISNUMBER(K5),K7-K5,0)");
+        } catch (e) {
+            console.log("ensureSalesTrackingCardStructure note: " + e);
+        }
+    };
+
+    /**
+     * Updates the Today's Sales Updates card exclusively during Copy Sales Data execution.
+     */
+    const updateSalesTrackingCard = (sheet, currentSalesVal, currentTimeStr, todayStr) => {
+        try {
+            if (!sheet) return;
+            const props = PropertiesService.getScriptProperties();
+            const storedDate = props.getProperty("TODAY_FIRST_SALES_DATE") || "";
+
+            applySalesTrackingCardStyle(sheet);
+
+            let firstTime = currentTimeStr;
+            let firstVal = currentSalesVal;
+            let prevTime = currentTimeStr;
+            let prevVal = currentSalesVal;
+            const lastTime = currentTimeStr;
+            const lastVal = currentSalesVal;
+
+            if (storedDate !== todayStr) {
+                // First copy of today
+                props.setProperty("TODAY_FIRST_SALES_DATE", todayStr);
+                props.setProperty("TODAY_FIRST_SALES_TIME", currentTimeStr);
+                props.setProperty("TODAY_FIRST_SALES_VALUE", String(currentSalesVal));
+                props.setProperty("TODAY_PREV_SALES_TIME", currentTimeStr);
+                props.setProperty("TODAY_PREV_SALES_VALUE", String(currentSalesVal));
+                props.setProperty("TODAY_LAST_SALES_TIME", currentTimeStr);
+                props.setProperty("TODAY_LAST_SALES_VALUE", String(currentSalesVal));
+            } else {
+                // Subsequent copies today: previous last update becomes previous update
+                prevTime = props.getProperty("TODAY_LAST_SALES_TIME") || currentTimeStr;
+                prevVal = parseFloat(props.getProperty("TODAY_LAST_SALES_VALUE")) || currentSalesVal;
+
+                props.setProperty("TODAY_PREV_SALES_TIME", prevTime);
+                props.setProperty("TODAY_PREV_SALES_VALUE", String(prevVal));
+                props.setProperty("TODAY_LAST_SALES_TIME", currentTimeStr);
+                props.setProperty("TODAY_LAST_SALES_VALUE", String(currentSalesVal));
+
+                firstTime = props.getProperty("TODAY_FIRST_SALES_TIME") || currentTimeStr;
+                firstVal = parseFloat(props.getProperty("TODAY_FIRST_SALES_VALUE")) || currentSalesVal;
+            }
+
+            sheet.getRange("J5").setValue(`1st Update (${firstTime})`);
+            sheet.getRange("K5").setValue(firstVal);
+            sheet.getRange("J6").setValue(`Prev Update (${prevTime})`);
+            sheet.getRange("K6").setValue(prevVal);
+            sheet.getRange("J7").setValue(`Last Update (${lastTime})`);
+            sheet.getRange("K7").setValue(lastVal);
+            sheet.getRange("K8").setFormula("=IF(ISNUMBER(K6),K7-K6,0)");
+            sheet.getRange("K9").setFormula("=IF(ISNUMBER(K5),K7-K5,0)");
+        } catch (e) {
+            console.log("updateSalesTrackingCard note: " + e);
+        }
+    };
+
+    /**
      * Navigates the active user interface to the Dashboard tab.
      */
     const openDashboard = () => {
@@ -519,5 +545,5 @@ const DashboardService = (() => {
         }
     };
 
-    return { refreshDashboard, openDashboard };
+    return { refreshDashboard, openDashboard, updateSalesTrackingCard };
 })();

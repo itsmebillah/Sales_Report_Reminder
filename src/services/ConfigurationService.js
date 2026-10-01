@@ -302,9 +302,8 @@ const ConfigurationService = (() => {
         hiddenSettings.forEach(setting => hiddenRows.push([setting[1], resolveValue(setting), setting[0]]));
         Object.keys(extras).sort().forEach(key => hiddenRows.push([key.replace(/_/g, ' '), extras[key], key]));
 
-        sheet.getRange(1, START_COLUMN, sheet.getMaxRows(), 6)
-            .breakApart().clearContent().clearFormat().clearDataValidations().clearNote();
-        sheet.getRange(1, START_COLUMN, 1, 6).merge()
+        SheetService.safeBreakApart(sheet, sheet.getRange(1, START_COLUMN, sheet.getMaxRows(), 6)).clearContent().clearFormat().clearDataValidations().clearNote();
+        SheetService.safeMerge(sheet, sheet.getRange(1, START_COLUMN, 1, 6))
             .setBackground('#17324d').setFontColor('#ffffff').setFontWeight('bold')
             .setFontSize(12).setHorizontalAlignment('center').setValue('SYSTEM CONFIGURATION & CONTROLS');
         if (leftRows.length) sheet.getRange(2, START_COLUMN, leftRows.length, 3).setValues(leftRows);
@@ -338,7 +337,7 @@ const ConfigurationService = (() => {
         const keyLocations = {};
         metadata.forEach(item => {
             if (item.kind === 'section') {
-                sheet.getRange(item.row, item.startColumn, 1, 3).merge()
+                SheetService.safeMerge(sheet, sheet.getRange(item.row, item.startColumn, 1, 3))
                     .setBackground(item.color).setFontColor('#ffffff').setFontWeight('bold')
                     .setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
                 sheet.setRowHeight(item.row, 31);
@@ -398,7 +397,7 @@ const ConfigurationService = (() => {
         });
 
         const styleSummaryRow = row => {
-            sheet.getRange(row, VALUE_COLUMN, 1, 2).merge();
+            SheetService.safeMerge(sheet, sheet.getRange(row, VALUE_COLUMN, 1, 2));
             sheet.getRange(row, START_COLUMN, 1, 3)
                 .setBackground('#eaf1f6').setFontColor('#24465b').setFontWeight('bold')
                 .setBorder(true, true, true, true, false, false, '#c8d7e1', SpreadsheetApp.BorderStyle.SOLID);
@@ -541,8 +540,7 @@ const ConfigurationService = (() => {
 
             // J11:K11 Header (Merged)
             const headerRange = sheet.getRange('J11:K11');
-            headerRange.breakApart();
-            headerRange.merge();
+            SheetService.safeMerge(sheet, headerRange);
             headerRange.setValue('MESSAGE DRAFT LIVE PREVIEW')
                 .setBackground('#17324d')
                 .setFontColor('#ffffff')
@@ -554,8 +552,7 @@ const ConfigurationService = (() => {
 
             // J12:K28 Preview Area (Merged across J12:K12 to J28:K28)
             const previewRange = sheet.getRange('J12:K28');
-            previewRange.breakApart();
-            previewRange.merge();
+            SheetService.safeMerge(sheet, previewRange);
 
             const formula = '=IF(OR(INDEX($D:$D,MATCH("MESSAGE_DRAFT",$E:$E,0))="STANDARD",INDEX($D:$D,MATCH("MESSAGE_DRAFT",$E:$E,0))="DRAFT_2",INDEX($D:$D,MATCH("MESSAGE_DRAFT",$E:$E,0))="DRAFT 2"),"' +
                 DRAFT_2_PREVIEW.replace(/"/g, '""') + '","' +

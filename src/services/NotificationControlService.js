@@ -123,7 +123,7 @@ const NotificationControlService = (() => {
     };
 
     /**
-     * Resets all FAILED rows in Message_Queue to RETRY.
+     * Resets all FAILED rows in Message_Queue to RETRY and resets their Retry_Count to 0.
      * @returns {number} Number of rows reset.
      */
     const retryFailed = () => {
@@ -134,16 +134,24 @@ const NotificationControlService = (() => {
         const headers = data[0];
         const statusCol = headers.indexOf('Status');
         if (statusCol === -1) throw new Error('Message_Queue is missing the Status column.');
+        const retryCountCol = headers.indexOf('Retry_Count');
+        const errorMsgCol = headers.indexOf('Error_Message');
 
         let count = 0;
         for (let i = 1; i < data.length; i++) {
             const status = String(data[i][statusCol] || '').trim().toUpperCase();
             if (status === 'FAILED') {
                 sheet.getRange(i + 1, statusCol + 1).setValue('RETRY');
+                if (retryCountCol !== -1) {
+                    sheet.getRange(i + 1, retryCountCol + 1).setValue(0);
+                }
+                if (errorMsgCol !== -1) {
+                    sheet.getRange(i + 1, errorMsgCol + 1).setValue('');
+                }
                 count++;
             }
         }
-        Logger.log('[NotificationControlService] Reset ' + count + ' FAILED rows → RETRY.');
+        Logger.log('[NotificationControlService] Reset ' + count + ' FAILED rows → RETRY with 0 retry count.');
         return count;
     };
 

@@ -227,7 +227,7 @@ const AttendanceService = (() => {
                 const dataRowCount = sheet.getMaxRows() - 2;
                 if (dataRowCount > 0) {
                     const resetRange = sheet.getRange(3, 1, dataRowCount, totalCols);
-                    resetRange.breakApart();                                         // Remove previous RSM merges
+                    SheetService.safeBreakApart(sheet, resetRange);                  // Remove previous RSM merges safely
                     resetRange.clearContent();
                     resetRange.clearFormat();                                        // Safely reset all formatting to sheet defaults
                 }
@@ -287,7 +287,7 @@ const AttendanceService = (() => {
                 // Runs AFTER applyFridayBackgrounds so dark-blue overrides the white/gray reset.
                 for (let h = 0; h < rsmHeaderSheetRows.length; h++) {
                     const rowNum = rsmHeaderSheetRows[h];
-                    sheet.getRange(rowNum, 1, 1, 6).merge();             // Merge A:F for clean title
+                    SheetService.safeMerge(sheet, sheet.getRange(rowNum, 1, 1, 6));             // Merge A:F for clean title
                     sheet.getRange(rowNum, 1, 1, totalCols)
                          .setBackground('#1b365d')
                          .setFontColor('#ffffff')
@@ -497,14 +497,20 @@ const AttendanceService = (() => {
         try {
             const archiveDay = parseInt(config['ATTENDANCE_ARCHIVE_DAY'], 10) || 5;
             const now = new Date();
-            const currentDay = now.getDate();
+            const currentDay = parseInt(Utilities.formatDate(now, tz, "d"), 10);
 
             if (currentDay !== archiveDay) return;
 
-            // Target Archive month: Previous month
-            const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-            const archiveYear = prevMonthDate.getFullYear();
-            const archiveMonth = String(prevMonthDate.getMonth() + 1).padStart(2, '0');
+            // Target Archive month: Previous month in configured timezone
+            const currentYear = parseInt(Utilities.formatDate(now, tz, "yyyy"), 10);
+            const currentMonth = parseInt(Utilities.formatDate(now, tz, "M"), 10); // 1-12
+            let archiveYear = currentYear;
+            let archiveMonthNum = currentMonth - 1;
+            if (archiveMonthNum < 1) {
+                archiveMonthNum = 12;
+                archiveYear -= 1;
+            }
+            const archiveMonth = String(archiveMonthNum).padStart(2, '0');
             const archiveName = `Attendance_${archiveYear}_${archiveMonth}`;
 
             const existingArchive = ss.getSheetByName(archiveName);

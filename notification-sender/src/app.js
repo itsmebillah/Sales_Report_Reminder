@@ -259,11 +259,14 @@ async function main() {
 
         Logger.info('✓ Initialization complete. Entering main polling loop...');
 
+        let consecutiveCycleErrors = 0;
+
         // Step 3: Main Continuous Polling Loop
         while (isKeepAliveActive) {
             try {
                 // Reload dynamic runtime settings on every iteration
                 runtimeConfig = await ConfigService.reload(sheetService);
+                consecutiveCycleErrors = 0;
                 const pollIntervalMs = (runtimeConfig.pollInterval || 10) * 1000;
                 const queueSheetName = runtimeConfig.queueSheet || 'Message_Queue';
                 const cycleMode = getWorkerCycleMode(runtimeConfig);
@@ -408,7 +411,9 @@ async function main() {
                             try {
                                 sendResult = await whatsappProvider.send({
                                     recipientPhone: targetPhone,
-                                    message: queueRecord.message
+                                    message: queueRecord.message,
+                                    mediaUrl: queueRecord.mediaUrl,
+                                    mediaType: queueRecord.mediaType
                                 });
                             } finally {
                                 isSendingMessage = false;
@@ -492,14 +497,16 @@ async function main() {
                 }
 
             } catch (cycleErr) {
-                Logger.error('[WORKER CYCLE ERROR]', cycleErr.message);
+                consecutiveCycleErrors++;
+                Logger.error(`[WORKER CYCLE ERROR #${consecutiveCycleErrors}]`, cycleErr.message);
                 try {
                     await sheetService.updateSettings({
                         'Sender_Status': 'Error',
                         'Last_Run_Time': formatBDDateTime()
                     });
                 } catch (e) {}
-                await sleep(10000);
+                const backoffMs = Math.min(60000, 10000 * Math.pow(1.5, Math.min(consecutiveCycleErrors - 1, 5)));
+                await sleep(backoffMs);
             }
         }
 

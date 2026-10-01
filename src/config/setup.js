@@ -203,7 +203,7 @@ const EnvironmentSetup = (() => {
             'Pending_SR_List', 'Message_Body', 'Status', 'Retry_Count', 'Created_At',
             'Sent_At', 'Error_Message', 'Message_ID', 'ACK', 'Processing_Started_At',
             'Worker_ID', 'Recovery_Time', 'Recovery_Reason', 'RSM_ID', 'RSM_Name',
-            'Idempotency_Key'
+            'Idempotency_Key', 'Media_Url', 'Media_Type'
         ];
         createOrClearSheet(ss, 'Message_Queue', msgQueueHeaders);
 
