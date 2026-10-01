@@ -396,14 +396,24 @@ const BroadcastService = (() => {
              .setHorizontalAlignment('left')
              .setWrap(true);
 
-        safeMerge(sheet, 'H22:P24')
+        safeMerge(sheet, 'H22:P23')
              .setValue('Edit message/attachment above, select recipients on the right, then use the Broadcast Controls buttons.')
              .setBackground(THEME.INFO_BG)
              .setFontColor(THEME.INFO_TEXT)
-             .setFontSize(10)
+             .setFontSize(9)
              .setVerticalAlignment('middle')
              .setHorizontalAlignment('left')
              .setWrap(true);
+
+        safeMerge(sheet, 'H24:P24')
+             .setValue('⚡ Architect: Md. Masum Billah • Website: https://itsmebillah.github.io/')
+             .setBackground('#0f172a')
+             .setFontColor('#38bdf8')
+             .setFontSize(9)
+             .setFontWeight('bold')
+             .setFontFamily('Arial')
+             .setVerticalAlignment('middle')
+             .setHorizontalAlignment('center');
 
         // ── RIGHT SECTION: RECIPIENT CONTACT LIST (Columns R:V starting at Row 1) ─
         // Only set header Row 1 and Column V2 (Send?). NEVER touch R2:U or X1!

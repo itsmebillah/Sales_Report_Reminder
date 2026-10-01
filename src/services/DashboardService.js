@@ -322,6 +322,32 @@ const DashboardService = (() => {
             // Note: Does NOT modify/touch existing tracking values during ordinary dashboard refreshes.
             ensureSalesTrackingCardStructure(sheet);
 
+            // System Architect Branding Card on J11:K12
+            SheetService.safeMerge(sheet, "J11:K11")
+                .setValue("SYSTEM ARCHITECT")
+                .setFontFamily("Arial")
+                .setFontSize(8)
+                .setFontWeight("bold")
+                .setBackground("#1e293b")
+                .setFontColor("#94a3b8")
+                .setHorizontalAlignment("center")
+                .setVerticalAlignment("middle");
+
+            SheetService.safeMerge(sheet, "J12:K12")
+                .setValue("⚡ Md. Masum Billah\nhttps://itsmebillah.github.io/")
+                .setFontFamily("Arial")
+                .setFontSize(8.5)
+                .setFontWeight("bold")
+                .setBackground("#0f172a")
+                .setFontColor("#38bdf8")
+                .setHorizontalAlignment("center")
+                .setVerticalAlignment("middle")
+                .setWrap(true);
+
+            sheet.getRange("J11:K12").setBorder(true, true, true, true, true, true, "#334155", SpreadsheetApp.BorderStyle.SOLID);
+            sheet.setRowHeight(11, 20);
+            sheet.setRowHeight(12, 34);
+
             // Apply Protection to make Dashboard read-only except for spreadsheet owner/editors
             try {
                 let protection = sheet.getProtections(SpreadsheetApp.ProtectionType.SHEET)[0];
