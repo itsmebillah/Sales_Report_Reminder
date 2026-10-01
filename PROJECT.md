@@ -1,5 +1,7 @@
 # Project Architecture & Conventions
 
+⚡ **Architect:** Md. Masum Billah • [Website](https://itsmebillah.github.io/)
+
 ## Architecture
 The system uses an IIFE-based Modular Architecture to provide encapsulation within the Google Apps Script global namespace constraints.
 

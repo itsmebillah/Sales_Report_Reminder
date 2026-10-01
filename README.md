@@ -11,6 +11,8 @@ Business reporting, attendance, and notification automation built around Google 
 
 [Live Dashboard](https://script.google.com/macros/s/AKfycbz_-_g2RfaJuJ_yNZ1z47Zj5YuGcuXYoWCAtlGJU4fBFB_D2kksI3NHHBPhU7FW8MI4/exec) | [Architecture](PROJECT.md) | [Configuration](CONFIG.md) | [Roadmap](ROADMAP.md) | [Security](SECURITY.md)
 
+⚡ **Architect:** Md. Masum Billah • [Website](https://itsmebillah.github.io/)
+
 ## Overview
 
 Sales Report Reminder reduces manual follow-up across sales reporting and field operations. Apps Script reads governed spreadsheet data, calculates reminder and attendance states, writes an auditable message queue, and exposes operational controls through Google Sheets. A separate Node.js sender consumes queued work and dispatches through enabled notification providers.
@@ -101,6 +103,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). No repository-wide open-source license h
 
 ---
 
-**Md. Masum Billah** · Data Analyst | Automation Developer | Business Intelligence Specialist
+⚡ **Architect:** Md. Masum Billah • [Website](https://itsmebillah.github.io/) · Data Analyst | Automation Developer | Business Intelligence Specialist
 
 [Portfolio](https://itsmebillah.github.io/) · [GitHub](https://github.com/itsmebillah) · [LinkedIn](https://www.linkedin.com/in/itsmebillah/) · [Email](mailto:itsmbillah@gmail.com) · [Live Dashboard](https://script.google.com/macros/s/AKfycbz_-_g2RfaJuJ_yNZ1z47Zj5YuGcuXYoWCAtlGJU4fBFB_D2kksI3NHHBPhU7FW8MI4/exec) · [Documentation](PROJECT.md)
