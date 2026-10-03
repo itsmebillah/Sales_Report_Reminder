@@ -82,13 +82,14 @@ const DashboardService = (() => {
             const isWhatsappEnabled = String(
                 config['WHATSAPP_ENABLED'] !== undefined ? config['WHATSAPP_ENABLED'] : config['WhatsApp_Enabled']
             ).toUpperCase() === 'TRUE';
-            const isDryRun = String(config['Dry_Run']).toUpperCase() === 'TRUE';
-            const isTestMode = String(config['TEST_MODE']).toUpperCase() === 'TRUE';
-            const overridePhone = String(config['OVERRIDE_PHONE'] || '').trim();
+            const isTestMode = String(config['TEST_MODE']).toUpperCase() === 'TRUE' || String(config['SENDER_MODE']).toUpperCase() === 'TEST';
+            const overridePhone = String(config['TEST_RECIPIENT_PHONE'] || config['OVERRIDE_PHONE'] || '').trim();
 
             let execMode = "PRODUCTION (Live WhatsApp API)";
             if (isTestMode && overridePhone !== '') {
-                execMode = `TEST MODE (Redirected to Override Phone: ${overridePhone})`;
+                execMode = `TEST MODE (Redirected to: ${overridePhone})`;
+            } else if (isTestMode) {
+                execMode = "TEST MODE (Active — Set Test Recipient Phone)";
             } else if (isDryRun) {
                 execMode = "DRY RUN (Simulated Transmission)";
             }
