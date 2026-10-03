@@ -9,6 +9,7 @@ const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const path = require('path');
 const fs = require('fs');
+const { execSync } = require('child_process');
 const Logger = require('../utils/Logger');
 
 class WhatsAppWebProvider {
@@ -107,6 +108,18 @@ class WhatsAppWebProvider {
         const fullSessionDir = path.resolve(sessionPath, `session-${clientId}`);
         if (!fs.existsSync(fullSessionDir)) return;
 
+        // 1. Terminate orphan browser processes holding this session's user-data-dir
+        try {
+            if (process.platform === 'win32') {
+                const targetPattern = `session-${clientId}`;
+                const cmd = `powershell -NoProfile -NonInteractive -Command "Get-CimInstance Win32_Process -Filter \\"name = 'brave.exe' or name = 'chrome.exe' or name = 'msedge.exe'\\" | Where-Object { $_.CommandLine -like '*${targetPattern}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"`;
+                execSync(cmd, { stdio: 'ignore', timeout: 5000 });
+            }
+        } catch (procErr) {
+            // Silently continue if process inspection fails
+        }
+
+        // 2. Remove stale lock files
         const lockFiles = ['SingletonLock', 'SingletonCookie', 'SingletonSocket', 'LOCK'];
         for (const lockFile of lockFiles) {
             const lockPath = path.join(fullSessionDir, lockFile);
