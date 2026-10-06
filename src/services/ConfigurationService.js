@@ -95,7 +95,7 @@ const ConfigurationService = (() => {
                 ['', 'Open Scheduler Time Picker', false, 'Select this checkbox to open the existing clock/time-picker UI.', 'actionScheduler'],
                 ['Timezone', 'Scheduler Timezone', 'Asia/Dhaka', 'Timezone used by the daily Apps Script trigger.', 'text'],
                 ['Reporting_Days', 'Reporting Days', 0, 'Days offset for sales evaluation (0 = same day, 1 = yesterday, etc.).', 'number'],
-                ['CUSTOM_SALES_DATE', 'Custom Sales Date', '', 'Optional exact sales date (YYYY-MM-DD or DD-MMM-YYYY). If blank, uses Reporting Days.', 'text'],
+                ['CUSTOM_SALES_DATE', 'Custom Sales Date', '', 'Optional exact sales date. Double-click to open calendar. If blank, uses Reporting Days.', 'date'],
                 ['POSTING_DEADLINE_TEXT', 'Posting Deadline Text', '', 'Optional custom deadline in message (e.g. 07-Oct-2026 সকাল 11:00 টা). If blank, uses draft formula.', 'text'],
                 ['Reminder_Days_Before_Lock', 'Reminder Days Before Lock', 0, 'Reminder lead time before lock.', 'number'],
                 ['ENABLE_AUTO_ATTENDANCE_SYNC', 'Auto Attendance Sync', true, 'Enable periodic Attendance synchronization.', 'toggle'],
@@ -377,6 +377,10 @@ const ConfigurationService = (() => {
             if (item.type === 'number') {
                 const rule = SpreadsheetApp.newDataValidation().requireNumberGreaterThanOrEqualTo(0).setAllowInvalid(false).build();
                 valueCell.setDataValidation(rule).setNumberFormat('0');
+            }
+            if (item.type === 'date') {
+                const rule = SpreadsheetApp.newDataValidation().requireDate().setAllowInvalid(true).build();
+                valueCell.setDataValidation(rule).setNumberFormat('yyyy-mm-dd');
             }
             if (item.type === 'delay') {
                 const rule = SpreadsheetApp.newDataValidation().requireNumberBetween(1, 120).setAllowInvalid(false).build();
