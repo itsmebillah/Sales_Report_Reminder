@@ -21,10 +21,10 @@ const DateUtils = (() => {
         const str = String(input).trim();
         if (!str || str === 'undefined' || str === 'null' || str === '#N/A') return null;
 
-        // Try standard Date constructor
-        const d = new Date(str);
-        if (!isNaN(d.getTime())) {
-            return d;
+        // Try YYYY-MM-DD or YYYY/MM/DD
+        const ymd = str.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+        if (ymd) {
+            return new Date(parseInt(ymd[1], 10), parseInt(ymd[2], 10) - 1, parseInt(ymd[3], 10));
         }
 
         // Try DD-MMM-YYYY (e.g. 06-Oct-2026)
@@ -41,6 +41,12 @@ const DateUtils = (() => {
         const dmy = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
         if (dmy) {
             return new Date(parseInt(dmy[3], 10), parseInt(dmy[2], 10) - 1, parseInt(dmy[1], 10));
+        }
+
+        // Try standard Date constructor fallback
+        const d = new Date(str);
+        if (!isNaN(d.getTime())) {
+            return d;
         }
 
         return null;
