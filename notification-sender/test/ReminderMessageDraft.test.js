@@ -224,3 +224,126 @@ test('Test Mode safely overrides recipient phone with TEST_RECIPIENT_PHONE', () 
     // Must be redirected to 8801899999999, NOT real TSO phone 01700000000
     assert.equal(recipientPhone, '8801899999999');
 });
+
+test('Reminder message supports Reporting_Days = 0 for same day evaluation and custom POSTING_DEADLINE_TEXT', () => {
+    const DateUtils = loadDateUtils();
+    const source = fs.readFileSync(path.resolve(__dirname, '../../src/services/ReminderService.js'), 'utf8');
+    
+    let writtenQueue = [];
+    const context = {
+        console: { log: () => {} },
+        DateUtils,
+        ConfigLoader: {
+            load: () => ({
+                MESSAGE_DRAFT: 'WITH_DEADLINE',
+                Dry_Run: 'FALSE',
+                Reporting_Days: 0,
+                POSTING_DEADLINE_TEXT: 'আজ দুপুর ১২.০০ টা',
+                Timezone: 'Asia/Dhaka',
+                NOTIFICATION_PROVIDER: 'WhatsApp'
+            })
+        },
+        SheetService: {
+            ensureMessageQueueHeaders: () => {},
+            clearDataKeepHeaders: () => {},
+            readHierarchyMap: () => ({
+                'SR01': { SR_ID: 'SR01', SR_Name: 'SR Name 1', TSO_ID: 'TSO01', TSO_Name: 'TSO One', TSO_Phone: '01700000000', RSM_ID: 'RSM01', RSM_Name: 'RSM One' }
+            }),
+            readContactMap: () => ({
+                tsoMap: { 'TSO01': { TSO_ID: 'TSO01', TSO_Name: 'TSO One', TSO_Phone: '01700000000', RSM_ID: 'RSM01', RSM_Name: 'RSM One' } },
+                srMap: {},
+                rsmMap: {},
+                rsmConflicts: {}
+            }),
+            readDailySalesForDayBySR: () => [
+                { SR_ID: 'SR01', Sales_Volume: 0 }
+            ],
+            readReminderSystemCache: () => ({}),
+            writePendingSRs: () => {},
+            writePendingTSOs: () => {},
+            writeMessageQueue: rows => { writtenQueue = rows; },
+            writeLog: () => {},
+            writeReminderSystemCache: () => {}
+        },
+        CleanupService: { runCleanup: () => ({}) },
+        AttendanceService: { updateAttendance: () => ({}) },
+        VisibilityService: { applyOfficeUserModeVisibility: () => {} },
+        DashboardService: { refreshDashboard: () => {} },
+        Utilities: {
+            getUuid: () => 'uuid-1',
+            formatDate: DateUtils.formatDate
+        }
+    };
+
+    vm.runInNewContext(source + '\nthis.__ReminderService = ReminderService;', context);
+    context.__ReminderService.processReminders();
+
+    assert.equal(writtenQueue.length, 1);
+    const messageBody = writtenQueue[0][11];
+
+    // Verify custom deadline text was injected
+    assert.match(messageBody, /⏰ পোস্টিংয়ের শেষ সময়: \*আজ দুপুর ১২\.০০ টা\*/);
+});
+
+test('Reminder message supports exact CUSTOM_SALES_DATE', () => {
+    const DateUtils = loadDateUtils();
+    const source = fs.readFileSync(path.resolve(__dirname, '../../src/services/ReminderService.js'), 'utf8');
+    
+    let writtenQueue = [];
+    const context = {
+        console: { log: () => {} },
+        DateUtils,
+        ConfigLoader: {
+            load: () => ({
+                MESSAGE_DRAFT: 'STANDARD',
+                Dry_Run: 'FALSE',
+                CUSTOM_SALES_DATE: '05-Oct-2026',
+                POSTING_DEADLINE_TEXT: '06-Oct-2026 সকাল 11.00 টা',
+                Timezone: 'Asia/Dhaka',
+                NOTIFICATION_PROVIDER: 'WhatsApp'
+            })
+        },
+        SheetService: {
+            ensureMessageQueueHeaders: () => {},
+            clearDataKeepHeaders: () => {},
+            readHierarchyMap: () => ({
+                'SR01': { SR_ID: 'SR01', SR_Name: 'SR Name 1', TSO_ID: 'TSO01', TSO_Name: 'TSO One', TSO_Phone: '01700000000', RSM_ID: 'RSM01', RSM_Name: 'RSM One' }
+            }),
+            readContactMap: () => ({
+                tsoMap: { 'TSO01': { TSO_ID: 'TSO01', TSO_Name: 'TSO One', TSO_Phone: '01700000000', RSM_ID: 'RSM01', RSM_Name: 'RSM One' } },
+                srMap: {},
+                rsmMap: {},
+                rsmConflicts: {}
+            }),
+            readDailySalesForDayBySR: () => [
+                { SR_ID: 'SR01', Sales_Volume: 0 }
+            ],
+            readReminderSystemCache: () => ({}),
+            writePendingSRs: () => {},
+            writePendingTSOs: () => {},
+            writeMessageQueue: rows => { writtenQueue = rows; },
+            writeLog: () => {},
+            writeReminderSystemCache: () => {}
+        },
+        CleanupService: { runCleanup: () => ({}) },
+        AttendanceService: { updateAttendance: () => ({}) },
+        VisibilityService: { applyOfficeUserModeVisibility: () => {} },
+        DashboardService: { refreshDashboard: () => {} },
+        Utilities: {
+            getUuid: () => 'uuid-1',
+            formatDate: DateUtils.formatDate
+        }
+    };
+
+    vm.runInNewContext(source + '\nthis.__ReminderService = ReminderService;', context);
+    context.__ReminderService.processReminders();
+
+    assert.equal(writtenQueue.length, 1);
+    const messageBody = writtenQueue[0][11];
+
+    // Verify reporting date is exactly 05-Oct-2026
+    assert.match(messageBody, /📅 রিপোর্টিং তারিখ: 05-Oct-2026/);
+    // Verify custom deadline text
+    assert.match(messageBody, /⏰ পোস্টিংয়ের শেষ সময়: 06-Oct-2026 সকাল 11\.00 টা/);
+});
+

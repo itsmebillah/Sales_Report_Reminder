@@ -106,10 +106,14 @@ const ReminderService = (() => {
         const config = ConfigLoader.load();
         const dryRun = String(config['Dry_Run']).toUpperCase() === 'TRUE';
         const whatsappEnabled = String(config['WhatsApp_Enabled']).toUpperCase() === 'TRUE';
-        const reportingDays = parseInt(config['Reporting_Days'], 10) || 3;
+        const rawReportingDays = config['Reporting_Days'];
+        const reportingDays = (rawReportingDays !== undefined && rawReportingDays !== '' && !isNaN(parseInt(rawReportingDays, 10)))
+            ? parseInt(rawReportingDays, 10)
+            : 0;
+        const customSalesDate = config['CUSTOM_SALES_DATE'];
         const tz = config['Timezone'] || 'Asia/Dhaka';
 
-        const salesDateObj = DateUtils.getTargetSalesDate(reportingDays, tz);
+        const salesDateObj = DateUtils.getTargetSalesDate(reportingDays, tz, customSalesDate);
         const targetDayInt = DateUtils.getDayOfMonth(salesDateObj);
         const formattedSalesDate = DateUtils.formatDate(salesDateObj, tz);
 
@@ -246,13 +250,17 @@ const ReminderService = (() => {
         const pendingTsoRows = [];
         const messageQueueRows = [];
         const timestamp = new Date();
+        const customDeadlineText = String(config['POSTING_DEADLINE_TEXT'] || '').trim();
         const messageDraft = String(config['MESSAGE_DRAFT'] || config['REMINDER_MESSAGE_DRAFT'] || 'WITH_DEADLINE').toUpperCase().trim();
-        const nextDayDate = DateUtils.getNextDayDate(new Date(), tz);
+        const nextDayDate = DateUtils.getNextDayDate(salesDateObj || new Date(), tz);
         const formattedNextDayDate = DateUtils.formatDate(nextDayDate, tz);
-        const withDeadlineText = `${formattedNextDayDate} 10.00 থেকে সকাল 11.00 টা`;
+        const defaultWithDeadlineText = `${formattedNextDayDate} 10.00 থেকে সকাল 11.00 টা`;
         const todayDate = new Date();
         const formattedTodayDate = DateUtils.formatDate(todayDate, tz);
-        const standardDeadlineText = `আজ (${formattedTodayDate}) সকাল 10.00 থেকে 11.00 টা`;
+        const defaultStandardDeadlineText = `আজ (${formattedTodayDate}) সকাল 10.00 থেকে 11.00 টা`;
+
+        const isDraft2 = messageDraft === 'STANDARD' || messageDraft === 'DRAFT_2' || messageDraft === 'DRAFT 2';
+        const effectiveDeadlineText = customDeadlineText || (isDraft2 ? defaultStandardDeadlineText : defaultWithDeadlineText);
 
         // Execute Queue Extraction
         for (const tsoId in tsoGroups) {
@@ -264,11 +272,10 @@ const ReminderService = (() => {
 
             // Exact message body based on configured message draft
             let messageBody;
-            const isDraft2 = messageDraft === 'STANDARD' || messageDraft === 'DRAFT_2' || messageDraft === 'DRAFT 2';
             if (isDraft2) {
-                messageBody = `আসসালামু আলাইকুম।\n\nপ্রিয় ${group.tsoName},\n\n📢 সেলস পোস্টিং রিমাইন্ডার\n\n📅 রিপোর্টিং তারিখ: ${formattedSalesDate}\n⏰ পোস্টিংয়ের শেষ সময়: ${standardDeadlineText}\n\n📌 মোট বাকি এসআর: ${srCount} জন\n\nবাকি থাকা এসআরদের তালিকা:\n\n${srList}\n\nঅনুগ্রহ করে নির্ধারিত সময়সীমার মধ্যে উপরের এসআরদের সেলস পোস্টিং সম্পন্ন করুন।\n\n⚠️ কোনো এসআর Close হয়ে থাকলে অনুগ্রহ করে সংশ্লিষ্ট গ্রুপে জানাবেন।\n\nℹ️ যদি ইতোমধ্যে সেলস পোস্টিং সম্পন্ন হয়ে থাকে, কোনো এসআর ছুটিতে থাকে কিংবা সেলস না থাকে তাহলে অনুগ্রহ করে এই বার্তাটি উপেক্ষা করুন।\n\nধন্যবাদ।`;
+                messageBody = `আসসালামু আলাইকুম।\n\nপ্রিয় ${group.tsoName},\n\n📢 সেলস পোস্টিং রিমাইন্ডার\n\n📅 রিপোর্টিং তারিখ: ${formattedSalesDate}\n⏰ পোস্টিংয়ের শেষ সময়: ${effectiveDeadlineText}\n\n📌 মোট বাকি এসআর: ${srCount} জন\n\nবাকি থাকা এসআরদের তালিকা:\n\n${srList}\n\nঅনুগ্রহ করে নির্ধারিত সময়সীমার মধ্যে উপরের এসআরদের সেলস পোস্টিং সম্পন্ন করুন।\n\n⚠️ কোনো এসআর Close হয়ে থাকলে অনুগ্রহ করে সংশ্লিষ্ট গ্রুপে জানাবেন।\n\nℹ️ যদি ইতোমধ্যে সেলস পোস্টিং সম্পন্ন হয়ে থাকে, কোনো এসআর ছুটিতে থাকে কিংবা সেলস না থাকে তাহলে অনুগ্রহ করে এই বার্তাটি উপেক্ষা করুন।\n\nধন্যবাদ।`;
             } else {
-                messageBody = `আসসালামু আলাইকুম।\n\nপ্রিয় ${group.tsoName},\n\n📢 সেলস পোস্টিং রিমাইন্ডার\n\n📅 রিপোর্টিং তারিখ: *${formattedSalesDate}*\n⏰ পোস্টিংয়ের শেষ সময়: *${withDeadlineText}*\n\n📌 মোট বাকি এসআর: ${srCount} জন\n\nবাকি থাকা এসআরদের তালিকা:\n\n${srList}\n\nঅনুগ্রহ করে নির্ধারিত সময়সীমার মধ্যে উপরের এসআরদের সেলস পোস্টিং সম্পন্ন করুন।\n\n⚠️ কোনো এসআর Close হয়ে থাকলে অনুগ্রহ করে সংশ্লিষ্ট গ্রুপে জানাবেন।\n\nℹ️ যদি ইতোমধ্যে সেলস পোস্টিং সম্পন্ন হয়ে থাকে, কোনো এসআর ছুটিতে থাকে কিংবা সেলস না থাকে তাহলে অনুগ্রহ করে এই বার্তাটি উপেক্ষা করুন।\n\nধন্যবাদ।`;
+                messageBody = `আসসালামু আলাইকুম।\n\nপ্রিয় ${group.tsoName},\n\n📢 সেলস পোস্টিং রিমাইন্ডার\n\n📅 রিপোর্টিং তারিখ: *${formattedSalesDate}*\n⏰ পোস্টিংয়ের শেষ সময়: *${effectiveDeadlineText}*\n\n📌 মোট বাকি এসআর: ${srCount} জন\n\nবাকি থাকা এসআরদের তালিকা:\n\n${srList}\n\nঅনুগ্রহ করে নির্ধারিত সময়সীমার মধ্যে উপরের এসআরদের সেলস পোস্টিং সম্পন্ন করুন।\n\n⚠️ কোনো এসআর Close হয়ে থাকলে অনুগ্রহ করে সংশ্লিষ্ট গ্রুপে জানাবেন।\n\nℹ️ যদি ইতোমধ্যে সেলস পোস্টিং সম্পন্ন হয়ে থাকে, কোনো এসআর ছুটিতে থাকে কিংবা সেলস না থাকে তাহলে অনুগ্রহ করে এই বার্তাটি উপেক্ষা করুন।\n\nধন্যবাদ।`;
             }
 
             const queueId = Utilities.getUuid();
@@ -402,12 +409,16 @@ const ReminderService = (() => {
         const timestamp = new Date();
         const provider = config['NOTIFICATION_PROVIDER'] || 'WhatsApp';
 
+        const customDeadlineText = String(config['POSTING_DEADLINE_TEXT'] || '').trim();
         const messageDraft = String(config['MESSAGE_DRAFT'] || config['REMINDER_MESSAGE_DRAFT'] || 'WITH_DEADLINE').toUpperCase().trim();
         const nextDayDate = DateUtils.getNextDayDate(timestamp, tz);
         const formattedNextDayDate = DateUtils.formatDate(nextDayDate, tz);
-        const withDeadlineText = `${formattedNextDayDate} 10.00 থেকে সকাল 11.00 টা`;
+        const defaultWithDeadlineText = `${formattedNextDayDate} 10.00 থেকে সকাল 11.00 টা`;
         const formattedTodayDate = DateUtils.formatDate(timestamp, tz);
-        const standardDeadlineText = `আজ (${formattedTodayDate}) সকাল 10.00 থেকে 11.00 টা`;
+        const defaultStandardDeadlineText = `আজ (${formattedTodayDate}) সকাল 10.00 থেকে 11.00 টা`;
+
+        const isDraft2 = messageDraft === 'STANDARD' || messageDraft === 'DRAFT_2' || messageDraft === 'DRAFT 2';
+        const effectiveDeadlineText = customDeadlineText || (isDraft2 ? defaultStandardDeadlineText : defaultWithDeadlineText);
 
         const tsoGroups = {};
         let formattedSalesDate = '';
@@ -426,11 +437,10 @@ const ReminderService = (() => {
             const targetPhone = getDestinationPhone(tsoPhone, config);
 
             let messageBody;
-            const isDraft2 = messageDraft === 'STANDARD' || messageDraft === 'DRAFT_2' || messageDraft === 'DRAFT 2';
             if (isDraft2) {
-                messageBody = `আসসালামু আলাইকুম।\n\nপ্রিয় ${tsoName},\n\n📢 সেলস পোস্টিং রিমাইন্ডার\n\n📅 রিপোর্টিং তারিখ: ${salesDate}\n⏰ পোস্টিংয়ের শেষ সময়: ${standardDeadlineText}\n\n📌 মোট বাকি এসআর: ${pendingSrCount} জন\n\nবাকি থাকা এসআরদের তালিকা:\n\n${pendingSrList}\n\nঅনুগ্রহ করে নির্ধারিত সময়সীমার মধ্যে উপরের এসআরদের সেলস পোস্টিং সম্পন্ন করুন।\n\n⚠️ কোনো এসআর Close হয়ে থাকলে অনুগ্রহ করে সংশ্লিষ্ট গ্রুপে জানাবেন।\n\nℹ️ যদি ইতোমধ্যে সেলস পোস্টিং সম্পন্ন হয়ে থাকে, কোনো এসআর ছুটিতে থাকে কিংবা সেলস না থাকে তাহলে অনুগ্রহ করে এই বার্তাটি উপেক্ষা করুন।\n\nধন্যবাদ।`;
+                messageBody = `আসসালামু আলাইকুম।\n\nপ্রিয় ${tsoName},\n\n📢 সেলস পোস্টিং রিমাইন্ডার\n\n📅 রিপোর্টিং তারিখ: ${salesDate}\n⏰ পোস্টিংয়ের শেষ সময়: ${effectiveDeadlineText}\n\n📌 মোট বাকি এসআর: ${pendingSrCount} জন\n\nবাকি থাকা এসআরদের তালিকা:\n\n${pendingSrList}\n\nঅনুগ্রহ করে নির্ধারিত সময়সীমার মধ্যে উপরের এসআরদের সেলস পোস্টিং সম্পন্ন করুন।\n\n⚠️ কোনো এসআর Close হয়ে থাকলে অনুগ্রহ করে সংশ্লিষ্ট গ্রুপে জানাবেন।\n\nℹ️ যদি ইতোমধ্যে সেলস পোস্টিং সম্পন্ন হয়ে থাকে, কোনো এসআর ছুটিতে থাকে কিংবা সেলস না থাকে তাহলে অনুগ্রহ করে এই বার্তাটি উপেক্ষা করুন।\n\nধন্যবাদ।`;
             } else {
-                messageBody = `আসসালামু আলাইকুম।\n\nপ্রিয় ${tsoName},\n\n📢 সেলস পোস্টিং রিমাইন্ডার\n\n📅 রিপোর্টিং তারিখ: *${salesDate}*\n⏰ পোস্টিংয়ের শেষ সময়: *${withDeadlineText}*\n\n📌 মোট বাকি এসআর: ${pendingSrCount} জন\n\nবাকি থাকা এসআরদের তালিকা:\n\n${pendingSrList}\n\nঅনুগ্রহ করে নির্ধারিত সময়সীমার মধ্যে উপরের এসআরদের সেলস পোস্টিং সম্পন্ন করুন।\n\n⚠️ কোনো এসআর Close হয়ে থাকলে অনুগ্রহ করে সংশ্লিষ্ট গ্রুপে জানাবেন।\n\nℹ️ যদি ইতোমধ্যে সেলস পোস্টিং সম্পন্ন হয়ে থাকে, কোনো এসআর ছুটিতে থাকে কিংবা সেলস না থাকে তাহলে অনুগ্রহ করে এই বার্তাটি উপেক্ষা করুন।\n\nধন্যবাদ।`;
+                messageBody = `আসসালামু আলাইকুম।\n\nপ্রিয় ${tsoName},\n\n📢 সেলস পোস্টিং রিমাইন্ডার\n\n📅 রিপোর্টিং তারিখ: *${salesDate}*\n⏰ পোস্টিংয়ের শেষ সময়: *${effectiveDeadlineText}*\n\n📌 মোট বাকি এসআর: ${pendingSrCount} জন\n\nবাকি থাকা এসআরদের তালিকা:\n\n${pendingSrList}\n\nঅনুগ্রহ করে নির্ধারিত সময়সীমার মধ্যে উপরের এসআরদের সেলস পোস্টিং সম্পন্ন করুন।\n\n⚠️ কোনো এসআর Close হয়ে থাকলে অনুগ্রহ করে সংশ্লিষ্ট গ্রুপে জানাবেন।\n\nℹ️ যদি ইতোমধ্যে সেলস পোস্টিং সম্পন্ন হয়ে থাকে, কোনো এসআর ছুটিতে থাকে কিংবা সেলস না থাকে তাহলে অনুগ্রহ করে এই বার্তাটি উপেক্ষা করুন।\n\nধন্যবাদ।`;
             }
 
             const idempotencyKey = `TSO_REMINDER|${salesDate}|${tsoId}`;

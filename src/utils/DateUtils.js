@@ -7,16 +7,66 @@
 const DateUtils = (() => {
 
     /**
-     * Calculates the target sales date by offsetting today with configured reporting days.
-     * @param {number} reportingDays 
+     * Parses an arbitrary date input (Date object, string in formats like 'YYYY-MM-DD', 'DD-MMM-YYYY', 'DD/MM/YYYY', etc.)
+     * safely taking timezone into account.
+     * @param {Date|string|number} input
+     * @param {string} [timezone]
+     * @returns {Date|null}
+     */
+    const parseDateSafe = (input, timezone) => {
+        if (!input) return null;
+        if (input instanceof Date && !isNaN(input.getTime())) {
+            return input;
+        }
+        const str = String(input).trim();
+        if (!str || str === 'undefined' || str === 'null' || str === '#N/A') return null;
+
+        // Try standard Date constructor
+        const d = new Date(str);
+        if (!isNaN(d.getTime())) {
+            return d;
+        }
+
+        // Try DD-MMM-YYYY (e.g. 06-Oct-2026)
+        const dmmmy = str.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/);
+        if (dmmmy) {
+            const months = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+            const mIdx = months[dmmmy[2].toLowerCase()];
+            if (mIdx !== undefined) {
+                return new Date(parseInt(dmmmy[3], 10), mIdx, parseInt(dmmmy[1], 10));
+            }
+        }
+
+        // Try DD/MM/YYYY or DD-MM-YYYY
+        const dmy = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+        if (dmy) {
+            return new Date(parseInt(dmy[3], 10), parseInt(dmy[2], 10) - 1, parseInt(dmy[1], 10));
+        }
+
+        return null;
+    };
+
+    /**
+     * Calculates the target sales date by offsetting today with configured reporting days,
+     * or by parsing an explicit custom date if provided.
+     * @param {number|string} reportingDays 
      * @param {string} timezone e.g., 'Asia/Dhaka'
+     * @param {Date|string} [customDate]
      * @returns {Date} 
      */
-    const getTargetSalesDate = (reportingDays, timezone) => {
+    const getTargetSalesDate = (reportingDays, timezone, customDate) => {
+        const tz = timezone || 'Asia/Dhaka';
+        if (customDate) {
+            const parsed = parseDateSafe(customDate, tz);
+            if (parsed) return parsed;
+        }
         // Current time shifted to proper timezone config
-        const nowStr = new Date().toLocaleString("en-US", { timeZone: timezone });
+        const nowStr = new Date().toLocaleString("en-US", { timeZone: tz });
         const target = new Date(nowStr);
-        target.setDate(target.getDate() - reportingDays);
+        const days = (reportingDays !== undefined && reportingDays !== '' && !isNaN(parseInt(reportingDays, 10)))
+            ? parseInt(reportingDays, 10)
+            : 0;
+        target.setDate(target.getDate() - days);
         return target;
     };
 
@@ -88,6 +138,7 @@ const DateUtils = (() => {
     };
 
     return {
+        parseDateSafe,
         getReportingMonthDate,
         getTargetSalesDate,
         getNextDayDate,

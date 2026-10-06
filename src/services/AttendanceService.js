@@ -31,9 +31,13 @@ const AttendanceService = (() => {
 
             const config = ConfigLoader.load();
             const tz = config['Timezone'] || 'Asia/Dhaka';
-            const reportingDays = parseInt(config['Reporting_Days'], 10) || 3;
+            const rawReportingDays = config['Reporting_Days'];
+            const reportingDays = (rawReportingDays !== undefined && rawReportingDays !== '' && !isNaN(parseInt(rawReportingDays, 10)))
+                ? parseInt(rawReportingDays, 10)
+                : 0;
+            const customSalesDate = config['CUSTOM_SALES_DATE'];
 
-            const salesDateObj = DateUtils.getTargetSalesDate(reportingDays, tz);
+            const salesDateObj = DateUtils.getTargetSalesDate(reportingDays, tz, customSalesDate);
             const targetDayInt = DateUtils.getDayOfMonth(salesDateObj);
 
             // Month Closing Check on Archive Day (e.g., 4th day of month)
